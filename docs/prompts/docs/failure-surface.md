@@ -158,7 +158,9 @@ After shutdown starts, helper-time observation failures should be classified as
 
 After shutdown completes, `Flush(ctx)` must not attempt delivery. It returns the
 last shutdown error if shutdown failed; otherwise it returns nil unless dirty
-state contains unresolved dropped observations or historical failures.
+state contains unresolved retryable work or another active failure. Historical
+dropped observations remain visible in snapshots but do not by themselves make
+post-shutdown `Flush` fail.
 
 ## Recorder State After Failures
 
