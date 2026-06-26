@@ -1,0 +1,42 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 4,
+  "branch": "bead-swarm/iteration-4-define-public-api-contract-for-sessions",
+  "slug": "define-public-api-contract-for-sessions",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.7"],
+  "beads_done": ["eino-obs-6on.7"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "First-pass reviewers requested clarification on premature ErrorHandler/failure-surface coupling, zero-value correlation merge semantics, and failure/cancellation call shapes.",
+    "Removed required ErrorHandler from the first contract, deferred hook reporting to failure-surface.md, defined non-empty correlation merge semantics, and added handle-level Error terminal shapes.",
+    "Second-pass consumer ergonomics review requested explicit cancellation shapes for all active handles.",
+    "Added Canceled bool/error examples for session, run, model call, stream, and tool call handles; focused third-pass review approved."
+  ],
+  "reviews": [
+    {
+      "reviewer": "api-contract-correctness",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-4-define-public-api-contract-for-sessions-2026-06-26-pass2/api-contract-correctness/04-action-items.md"
+    },
+    {
+      "reviewer": "consumer-ergonomics-maintainability",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-4-define-public-api-contract-for-sessions-2026-06-26-pass3/consumer-ergonomics-maintainability/04-action-items.md"
+    }
+  ],
+  "status": "complete"
+}
