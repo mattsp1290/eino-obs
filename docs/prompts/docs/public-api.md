@@ -40,6 +40,7 @@ type Correlation struct {
     AssistantMessageID string
     ThreadID string
     AGUIRunID string
+    ToolCallID string
 }
 
 type ProviderModel struct {
@@ -67,6 +68,13 @@ type RedactionOptions struct {
     CaptureInputSummary bool
     CaptureOutputSummary bool
     MaxSummaryBytes int
+}
+
+type RedactionRecord struct {
+    FieldPath string
+    Reason string
+    OriginalBytes int
+    RetainedBytes int
 }
 
 type ObservationError struct {
@@ -104,19 +112,37 @@ type Exporter interface {
 }
 
 type Observation struct {
-    // Opaque public view of a normalized observation.
+    ID string
+    ParentID string
+    TraceID string
+    Kind string
+    Name string
+    Status string
+    Timestamp time.Time
+    Duration time.Duration
+    DurationKnown bool
+    Attributes map[string]any
+    Events []Observation
+    Redaction []RedactionRecord
+    Error *ObservationError
 }
 ```
 
 `Observation` is the public compatibility boundary for normalized observations.
-The first implementation may keep normalized fields opaque while internal model
-types follow [schema.md](schema.md), but exporters and fake recorders must
+It is a snapshot-style value: exporters and fake recorders receive defensive
+copies of maps, events, redaction records, and error values. Internal model
+types may use richer representations, but conversion to `Observation` must
 preserve the schema's identity, hierarchy, timing, redaction, and error fields.
+`DurationKnown` distinguishes active or instantaneous observations from ended
+spans with a zero duration.
 
 `Config.ErrorHandler` is optional. It receives observation/export failures from
 [failure-surface.md](failure-surface.md), not domain operation errors such as
 model/tool failures recorded through handle `Error` methods. Helpers must not
-require an error handler for correctness.
+require an error handler for correctness. `ObservationError.Err` may wrap the
+raw in-process error for handler logic; snapshots and export payloads must use
+the redacted `error.type` and `error.message` rules from [schema.md](schema.md)
+and [redaction.md](redaction.md).
 
 ## Construction
 
@@ -157,6 +183,9 @@ options with context correlation. Merge semantics are field-by-field:
 - there is no public "clear this inherited ID" operation in the first contract.
 
 This keeps zero-value option structs ergonomic while preserving propagated IDs.
+`Correlation.ToolCallID` is available for context propagation when a tool call
+creates child observations. Tool helper `ToolCallID` fields also populate
+`correlation.tool_call_id` and `tool.call_id` on tool observations.
 
 ## Lifecycle Style
 
@@ -323,8 +352,8 @@ tool.End(einoobs.ToolCallEnd{
 
 The same primitive contract must support server-side tools and AG-UI
 client-proposed tools. AG-UI-specific correlation is represented through
-`Correlation.ThreadID`, `Correlation.AGUIRunID`, `ToolCallID`, and ordinary
-metadata fields, not AG-UI runtime types.
+`Correlation.ThreadID`, `Correlation.AGUIRunID`, `Correlation.ToolCallID`,
+tool helper `ToolCallID`, and ordinary metadata fields, not AG-UI runtime types.
 
 Tool materialization, settlement, and failure call shapes:
 

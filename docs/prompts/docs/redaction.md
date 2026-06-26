@@ -1,8 +1,8 @@
 # Redaction And Privacy Policy
 
-This file is the contract for `eino-obs-6on.9`. Redaction-sensitive
-implementation must follow this policy before adding normalization, recorder, or
-exporter behavior.
+This file is the frozen first-implementation redaction contract after
+`eino-obs-6on.59`. Redaction-sensitive implementation must follow this policy
+before adding normalization, recorder, or exporter behavior.
 
 ## Default Policy
 

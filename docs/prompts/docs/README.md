@@ -36,7 +36,7 @@ update the affected contract in the same change that resolves it.
 - [fake-recorder.md](fake-recorder.md): no-network recorder/exporter contract for
   tests.
 - [failure-surface.md](failure-surface.md): instrumentation, flush, shutdown,
-  hook, and recorder-state failure behavior.
+  error-handler, and recorder-state failure behavior.
 - [exporter-config.md](exporter-config.md): Datadog-compatible exporter
   configuration, batching, retries, credentials, and endpoint notes.
 - [examples.md](examples.md): public examples and documentation plan for

@@ -1,8 +1,9 @@
 # Normalized Span And Event Schema
 
-This file is the contract for `eino-obs-6on.8`. It defines the transport-neutral
-model shared by public helpers, recorders, and exporters before mapping to the
-selected Datadog LLM Observability trace spans HTTP API.
+This file is the frozen first-implementation schema contract after
+`eino-obs-6on.59`. It defines the transport-neutral model shared by public
+helpers, recorders, and exporters before mapping to the selected Datadog LLM
+Observability trace spans HTTP API.
 
 ## Model Shape
 
@@ -128,6 +129,9 @@ field must be omitted. Supported correlation fields are:
 - `correlation.thread_id`
 - `correlation.agui_run_id`
 - `correlation.tool_call_id`
+
+`correlation.tool_call_id` comes from public `Correlation.ToolCallID` or from a
+tool helper `ToolCallID` field. Tool observations also set `tool.call_id`.
 
 ## Optional Common Attributes
 

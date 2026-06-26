@@ -1,6 +1,7 @@
 # Failure Surface Contract
 
-This file is the contract for `eino-obs-6on.11`.
+This file is the frozen first-implementation failure-surface contract after
+`eino-obs-6on.59`.
 
 ## Decision
 
@@ -11,7 +12,7 @@ failures surface through:
 - `Flush(ctx) error`;
 - `Shutdown(ctx) error`;
 - recorder/exporter state snapshots;
-- optional error handler hooks;
+- optional error handlers;
 - normalized observation error records where the schema supports them.
 
 This preserves ergonomic instrumentation call sites while still giving
@@ -102,14 +103,15 @@ Dirty state is set by:
 
 While dirty state is set, `Flush(ctx)` must return an error even when there are
 no buffered exportable observations. A successful `Flush(ctx)` clears dirty
-state only when all pending retryable observations are delivered and no
-undropped historical failure remains unresolved. Dropped observations and
-shutdown failures remain visible in snapshots even after later successful
-flushes.
+state when all pending retryable observations known at call start are delivered
+and no active retryable failure remains. Dropped observations remain visible in
+snapshots as historical failures but do not by themselves keep dirty state set
+after a later successful flush observes no pending retryable work.
 
+Shutdown failures remain dirty until a later successful shutdown or reset.
 `Shutdown(ctx)` reports dirty state before returning nil. If shutdown drains all
-pending observations but dirty state remains because of dropped observations or
-historical failures, shutdown returns the aggregate error for those failures.
+pending observations and only historical dropped observations remain, shutdown
+may return nil after preserving those dropped observations in snapshots.
 
 ## Flush Behavior
 
@@ -246,6 +248,8 @@ Implementation beads must test:
   export state;
 - dirty state causes `Flush` and `Shutdown` to return errors until the contract's
   clearing conditions are met;
+- dropped observations remain inspectable after dirty state clears through a
+  successful flush with no pending retryable work;
 - aggregate errors are compatible with `errors.Join` and expose
   `ObservationError` through `errors.As`;
 - post-shutdown helper calls do not enqueue exportable observations, do not

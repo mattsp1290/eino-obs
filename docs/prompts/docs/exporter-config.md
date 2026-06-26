@@ -267,7 +267,9 @@ deterministic jitter without changing production environment behavior.
 
 When retries are exhausted, retryable observations remain pending when practical
 and visible in fake/state snapshots. Non-retryable failures are dropped and
-recorded with `Dropped: true`.
+recorded with `Dropped: true`. Dropped observations are historical after a later
+successful flush observes no pending retryable work: they remain visible in
+snapshots but do not by themselves keep dirty state set.
 
 ## Flush And Shutdown
 
@@ -334,6 +336,8 @@ Implementation beads must test configuration without live credentials:
 - retry tests can use deterministic sleep/jitter without wall-clock delays;
 - retry exhaustion leaves retryable observations pending when practical;
 - non-retryable failures drop observations and mark dirty state;
+- a later successful flush with no pending retryable work clears dirty state
+  while preserving dropped-observation snapshots;
 - `Flush` and `Shutdown` use configured retry, timeout, and context behavior;
 - normal `go test ./...` uses fake HTTP servers or fake exporter only.
 

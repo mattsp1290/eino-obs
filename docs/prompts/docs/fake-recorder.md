@@ -219,6 +219,11 @@ failure behavior from [failure-surface.md](failure-surface.md).
   clear;
 - returns an aggregate error compatible with `errors.Join` when failures remain.
 
+If all pending retryable observations are delivered and no active retryable
+failure remains, `Flush` clears dirty state even when `Dropped` still contains
+historical non-retryable drops. Dropped observations remain inspectable until
+`Reset`.
+
 `Shutdown(ctx)`:
 
 - increments the public shutdown counter once per call;
@@ -316,6 +321,8 @@ Implementation beads must test:
 - retryable export failures remain pending and can be delivered by a later
   successful flush;
 - non-retryable export failures are dropped and visible in snapshots;
+- after a later successful flush with no pending retryable work, dirty state is
+  clear while historical dropped observations remain visible;
 - operation-scoped call-indexed failure injection works for record, export,
   flush, shutdown, credential validation, and error-handler paths;
 - injected failures count attempted calls even when they fail;
