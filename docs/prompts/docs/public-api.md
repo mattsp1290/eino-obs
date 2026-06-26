@@ -1,8 +1,9 @@
 # Public API Contract
 
-This file is the contract for `eino-obs-6on.7`. Implementation beads should
-treat the names and call shapes here as the intended public surface unless a
-later contract-freeze bead revises them.
+This file is the frozen first-implementation public API contract after
+`eino-obs-6on.59`. Implementation beads should treat the names and call shapes
+here as the intended public surface unless a later Beads issue explicitly
+changes this contract.
 
 ## Package Boundary
 
@@ -29,6 +30,7 @@ type Config struct {
     Version string
     Redaction RedactionOptions
     Exporter Exporter
+    ErrorHandler ErrorHandler
 }
 
 type Correlation struct {
@@ -38,6 +40,7 @@ type Correlation struct {
     AssistantMessageID string
     ThreadID string
     AGUIRunID string
+    ToolCallID string
 }
 
 type ProviderModel struct {
@@ -66,6 +69,23 @@ type RedactionOptions struct {
     CaptureOutputSummary bool
     MaxSummaryBytes int
 }
+
+type RedactionRecord struct {
+    FieldPath string
+    Reason string
+    OriginalBytes int
+    RetainedBytes int
+}
+
+type ObservationError struct {
+    Operation string
+    Classification string
+    Err error
+    Retryable bool
+    Dropped bool
+}
+
+type ErrorHandler func(context.Context, ObservationError)
 ```
 
 Zero values must be usable. Empty IDs are omitted from normalized output rather
@@ -92,18 +112,37 @@ type Exporter interface {
 }
 
 type Observation struct {
-    // Opaque public view of a normalized observation.
+    ID string
+    ParentID string
+    TraceID string
+    Kind string
+    Name string
+    Status string
+    Timestamp time.Time
+    Duration time.Duration
+    DurationKnown bool
+    Attributes map[string]any
+    Events []Observation
+    Redaction []RedactionRecord
+    Error *ObservationError
 }
 ```
 
-The final `Observation` shape depends on [schema.md](schema.md). Until that
-schema is frozen, helpers may keep normalized details internal and use the
-interface shape above as the compatibility target.
+`Observation` is the public compatibility boundary for normalized observations.
+It is a snapshot-style value: exporters and fake recorders receive defensive
+copies of maps, events, redaction records, and error values. Internal model
+types may use richer representations, but conversion to `Observation` must
+preserve the schema's identity, hierarchy, timing, redaction, and error fields.
+`DurationKnown` distinguishes active or instantaneous observations from ended
+spans with a zero duration.
 
-`Config` intentionally does not require an error hook yet. Hook-based reporting,
-recorder-state reporting, returned errors, and combinations of those mechanisms
-are decided in [failure-surface.md](failure-surface.md). A later failure-surface
-decision may add optional hook types without changing the call shapes below.
+`Config.ErrorHandler` is optional. It receives observation/export failures from
+[failure-surface.md](failure-surface.md), not domain operation errors such as
+model/tool failures recorded through handle `Error` methods. Helpers must not
+require an error handler for correctness. `ObservationError.Err` may wrap the
+raw in-process error for handler logic; snapshots and export payloads must use
+the redacted `error.type` and `error.message` rules from [schema.md](schema.md)
+and [redaction.md](redaction.md).
 
 ## Construction
 
@@ -118,9 +157,8 @@ defer obs.Shutdown(ctx)
 ```
 
 `New` must choose safe no-network defaults when `Config.Exporter` is nil. Real
-Datadog-compatible exporters are configured through an exporter constructor
-after [export-strategy.md](export-strategy.md) and
-[exporter-config.md](exporter-config.md) are decided.
+Datadog-compatible exporters are configured through the constructor and
+environment behavior in [exporter-config.md](exporter-config.md).
 
 ## Context Propagation
 
@@ -145,6 +183,9 @@ options with context correlation. Merge semantics are field-by-field:
 - there is no public "clear this inherited ID" operation in the first contract.
 
 This keeps zero-value option structs ergonomic while preserving propagated IDs.
+`Correlation.ToolCallID` is available for context propagation when a tool call
+creates child observations. Tool helper `ToolCallID` fields also populate
+`correlation.tool_call_id` and `tool.call_id` on tool observations.
 
 ## Lifecycle Style
 
@@ -162,13 +203,15 @@ All active-handle error structs include `Err error`,
 terminal error state for active handles and can also be recorded as a lifecycle
 event when the consumer needs a run-level cancellation marker.
 
-Handles must be safe for a single logical operation; concurrency guarantees for
-handles and recorders are finalized in [fake-recorder.md](fake-recorder.md).
+Handles are intended for a single logical operation. Duplicate or concurrent
+terminal calls are tolerated defensively as defined by
+[fake-recorder.md](fake-recorder.md): exactly one terminal state is recorded and
+duplicates must not panic.
 
-Instrumentation helpers must not panic on exporter failure. Exact error
-reporting behavior is finalized in [failure-surface.md](failure-surface.md), but
-call sites should be designed so failures can be surfaced through flush,
-shutdown, hooks, or recorder state without changing helper signatures.
+Instrumentation helpers must not panic on exporter failure. Observation failures
+surface through flush, shutdown, optional `ErrorHandler`, normalized
+`observation.error` records, or recorder/exporter state as defined by
+[failure-surface.md](failure-surface.md).
 
 ## Session And Run Helpers
 
@@ -271,8 +314,8 @@ stream.End(einoobs.StreamEnd{
 ```
 
 The stream contract must allow first-token latency, total latency, partial
-failure, cancellation, and final token usage to be represented after
-[schema.md](schema.md) is finalized.
+failure, cancellation, and final token usage to be represented according to
+[schema.md](schema.md).
 
 Stream failures and cancellations are terminal handle errors:
 
@@ -309,8 +352,8 @@ tool.End(einoobs.ToolCallEnd{
 
 The same primitive contract must support server-side tools and AG-UI
 client-proposed tools. AG-UI-specific correlation is represented through
-`Correlation.ThreadID`, `Correlation.AGUIRunID`, `ToolCallID`, and ordinary
-metadata fields, not AG-UI runtime types.
+`Correlation.ThreadID`, `Correlation.AGUIRunID`, `Correlation.ToolCallID`,
+tool helper `ToolCallID`, and ordinary metadata fields, not AG-UI runtime types.
 
 Tool materialization, settlement, and failure call shapes:
 
@@ -342,7 +385,7 @@ obs.ToolSettled(ctx, einoobs.ToolSettled{
 ```
 
 Expected `ToolSettled.Status` values are `succeeded`, `failed`, and `canceled`
-unless the schema contract later narrows or expands them.
+as defined by [schema.md](schema.md).
 
 ## Lifecycle Event Helpers
 

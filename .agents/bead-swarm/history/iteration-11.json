@@ -1,0 +1,43 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 11,
+  "branch": "bead-swarm/iteration-11-review-freeze-contracts",
+  "slug": "review-freeze-contracts",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.59"],
+  "beads_done": ["eino-obs-6on.59"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial API/schema/redaction freeze review requested a consumable public Observation contract and a public source for correlation.tool_call_id.",
+    "Initial failure/recorder/exporter freeze review requested explicit dirty-state clearing semantics for dropped/non-retryable failures.",
+    "Updated contracts with public Observation and RedactionRecord shapes, Correlation.ToolCallID mapping, resolved dependency/freeze notes, error_handler terminology, and dirty-state clearing rules.",
+    "Focused re-reviews approved both blocker sets with no remaining blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "api-schema-redaction-freeze",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-11-review-freeze-contracts-2026-06-26/api-schema-redaction-freeze/05-re-review.md"
+    },
+    {
+      "reviewer": "failure-recorder-exporter-freeze",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-11-review-freeze-contracts-2026-06-26/failure-recorder-exporter-freeze/05-re-review.md"
+    }
+  ],
+  "completed_at": "2026-06-26T22:06:24Z",
+  "status": "complete"
+}

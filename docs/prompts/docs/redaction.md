@@ -1,8 +1,8 @@
 # Redaction And Privacy Policy
 
-This file is the contract for `eino-obs-6on.9`. Redaction-sensitive
-implementation must follow this policy before adding normalization, recorder, or
-exporter behavior.
+This file is the frozen first-implementation redaction contract after
+`eino-obs-6on.59`. Redaction-sensitive implementation must follow this policy
+before adding normalization, recorder, or exporter behavior.
 
 ## Default Policy
 
@@ -40,8 +40,8 @@ Normalized observations should use these conventions:
   `encrypted_reasoning_forbidden`;
 - record counts or booleans only when they do not reveal sensitive content.
 
-Until [schema.md](schema.md) defines final field names, tests should assert this
-minimal logical redaction metadata shape:
+[schema.md](schema.md) preserves this logical redaction metadata shape for
+normalized observations and tests:
 
 ```go
 type RedactionRecord struct {
@@ -150,11 +150,11 @@ Metadata rules:
   `summary_truncated` until the schema contract defines a metadata-specific
   reason.
 
-Errors may expose `error.Error()` strings only after the failure-surface and
-schema contracts decide the exact error fields. Until then, implementations
-should prefer stable classification strings and avoid exporting raw error text
-that could contain prompt, tool, provider response, credential, or attachment
-content.
+Errors may expose `error.Error()` strings only through the redacted
+`error.message` behavior in [schema.md](schema.md) and
+[failure-surface.md](failure-surface.md). Implementations should prefer stable
+classification strings and avoid exporting raw error text that could contain
+prompt, tool, provider response, credential, or attachment content.
 
 ## Test Requirements
 
@@ -185,9 +185,10 @@ Implementation beads must include tests proving:
 - no-network fake recorder tests can inspect redaction metadata without live
   credentials.
 
-## Open Dependencies
+## Resolved Dependencies
 
-[schema.md](schema.md) must define the final redaction metadata shape and naming
-rules. [fake-recorder.md](fake-recorder.md) must define how tests inspect
-post-redaction observations. [failure-surface.md](failure-surface.md) must define
-whether and how redaction errors are surfaced.
+[schema.md](schema.md) defines the final logical redaction metadata fields used
+by normalized observations. [fake-recorder.md](fake-recorder.md) defines
+post-redaction snapshot inspection. [failure-surface.md](failure-surface.md)
+defines how redaction errors surface through state, optional error handlers,
+flush, or shutdown.
