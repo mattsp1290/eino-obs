@@ -1,0 +1,11 @@
+{
+  "iteration": 16,
+  "branch": "bead-swarm/iteration-16-implement-fake-recorder-exporter",
+  "slug": "implement-fake-recorder-exporter",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "selected_beads": ["eino-obs-6on.25"],
+  "beads_done_pending_close": [],
+  "beads_blocked": [],
+  "beads_partial": []
+}
