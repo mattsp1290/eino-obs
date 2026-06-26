@@ -310,9 +310,9 @@ func TestOversizedSummaryAndMetadataNamesAreOmitted(t *testing.T) {
 func TestOversizedMapsRetainCanonicalLexicalFirstEntries(t *testing.T) {
 	metadata := map[string]string{}
 	for i := 0; i < MaxMapEntries; i++ {
-		metadata[fmt.Sprintf("keep-%02d", i)] = "safe"
+		metadata[fmt.Sprintf("a-%02d", i)] = "safe"
 	}
-	metadata["zz-overflow"] = "drop"
+	metadata["Z-overflow"] = "drop"
 
 	attrs, records, err := MetadataAttributes(metadata, Options{})
 	if err != nil {
@@ -322,15 +322,15 @@ func TestOversizedMapsRetainCanonicalLexicalFirstEntries(t *testing.T) {
 		t.Fatalf("retained attrs = %d, want %d", len(attrs), MaxMapEntries)
 	}
 	for i := 0; i < MaxMapEntries; i++ {
-		key := fmt.Sprintf("metadata.keep-%02d", i)
+		key := fmt.Sprintf("metadata.a-%02d", i)
 		if _, ok := attrs[key]; !ok {
 			t.Fatalf("expected retained key %q missing from %#v", key, attrs)
 		}
 	}
-	if _, ok := attrs["metadata.zz-overflow"]; ok {
+	if _, ok := attrs["metadata.Z-overflow"]; ok {
 		t.Fatalf("overflow key was retained")
 	}
-	assertRecord(t, records, "metadata.zz-overflow", ReasonFieldLimitExceeded, len("drop"), 0)
+	assertRecord(t, records, "metadata.Z-overflow", ReasonFieldLimitExceeded, len("drop"), 0)
 }
 
 func TestApplySpanRedactsEncryptedReasoningErrorMessageWithMetadata(t *testing.T) {
