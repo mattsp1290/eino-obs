@@ -1,0 +1,44 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 18,
+  "branch": "bead-swarm/iteration-18-wire-no-network-mode",
+  "slug": "wire-no-network-mode",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.27"],
+  "beads_done": ["eino-obs-6on.27"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial no-network API review requested order-independent WithNoNetwork redaction and public Dirty state after accepted exports.",
+    "Initial redaction/snapshot review requested Dirty state transitions and nested event name/error preservation in snapshots.",
+    "Updated WithNoNetwork to defer exporter construction until after all options and validation, using final RedactionOptions.",
+    "Updated NoNetworkExporter to mark dirty on accepted non-empty exports and preserve nested event name, error, attributes, and redaction.",
+    "Focused re-reviews approved both blocker sets with no remaining blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "no-network-api",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-18-wire-no-network-mode-2026-06-26/no-network-api/05-re-review.md"
+    },
+    {
+      "reviewer": "no-network-redaction-snapshot",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-18-wire-no-network-mode-2026-06-26/no-network-redaction-snapshot/05-re-review.md"
+    }
+  ],
+  "completed_at": "2026-06-26T23:33:28Z",
+  "status": "complete"
+}
