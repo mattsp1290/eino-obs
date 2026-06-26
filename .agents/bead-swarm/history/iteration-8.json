@@ -1,0 +1,43 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 8,
+  "branch": "bead-swarm/iteration-8-define-normalized-span-and-event-schema",
+  "slug": "define-normalized-span-and-event-schema",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.8"],
+  "beads_done": ["eino-obs-6on.8"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial schema coverage review requested per-span and per-event requiredness, explicit observation identity, deterministic parent resolution, and deeper streaming/tool lifecycle contracts.",
+    "Initial Datadog mapping review requested concrete LLM Observability HTTP payload mapping for IDs, parent IDs, timestamps, duration, ml_app, meta.kind, token metrics, and event serialization.",
+    "Updated schema.md with identity and hierarchy rules, span/event matrices, streaming/tool/error lifecycle details, and concrete Datadog mapping tables.",
+    "Focused re-reviews approved both blocker sets with no remaining blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "schema-coverage-correctness",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-8-define-normalized-span-and-event-schema-2026-06-26/schema-coverage-correctness/05-re-review.md"
+    },
+    {
+      "reviewer": "datadog-mapping-readiness",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-8-define-normalized-span-and-event-schema-2026-06-26/datadog-mapping-readiness/05-re-review.md"
+    }
+  ],
+  "completed_at": "2026-06-26T21:40:03Z",
+  "status": "complete"
+}
