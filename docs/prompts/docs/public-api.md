@@ -29,7 +29,6 @@ type Config struct {
     Version string
     Redaction RedactionOptions
     Exporter Exporter
-    ErrorHandler ErrorHandler
 }
 
 type Correlation struct {
@@ -60,6 +59,8 @@ type Summary struct {
     Fields map[string]string
 }
 
+type Metadata map[string]string
+
 type RedactionOptions struct {
     CaptureInputSummary bool
     CaptureOutputSummary bool
@@ -68,10 +69,15 @@ type RedactionOptions struct {
 ```
 
 Zero values must be usable. Empty IDs are omitted from normalized output rather
-than replaced with placeholder strings. `Summary` carries caller-provided
-bounded summaries only; raw prompt, tool payload, attachment, and reasoning
-capture remains out of scope unless [redaction.md](redaction.md) changes that
-contract.
+than replaced with placeholder strings. `Metadata` is the shared extension point
+for start, end, and event structs that need stable string attributes without
+provider-specific types.
+
+`Summary` carries caller-provided bounded summaries only; raw prompt, tool
+payload, attachment, and reasoning capture remains out of scope unless
+[redaction.md](redaction.md) changes that contract. `Summary.Fields` and
+`Metadata` maps are bounded by the redaction policy. Public helpers must
+defensively copy map inputs before storing or exporting them.
 
 ## Exporter And Recorder Interfaces
 
@@ -88,18 +94,16 @@ type Exporter interface {
 type Observation struct {
     // Opaque public view of a normalized observation.
 }
-
-type ErrorHandler func(context.Context, ObservationError)
-
-type ObservationError struct {
-    Operation string
-    Err error
-}
 ```
 
 The final `Observation` shape depends on [schema.md](schema.md). Until that
 schema is frozen, helpers may keep normalized details internal and use the
 interface shape above as the compatibility target.
+
+`Config` intentionally does not require an error hook yet. Hook-based reporting,
+recorder-state reporting, returned errors, and combinations of those mechanisms
+are decided in [failure-surface.md](failure-surface.md). A later failure-surface
+decision may add optional hook types without changing the call shapes below.
 
 ## Construction
 
@@ -133,8 +137,14 @@ corr, ok := einoobs.CorrelationFromContext(ctx)
 ```
 
 Helpers that start observations accept `context.Context`; they merge explicit
-options with context correlation. Explicit option fields take precedence over
-context fields for that observation only.
+options with context correlation. Merge semantics are field-by-field:
+
+- non-empty explicit `Correlation` fields override context fields for that
+  observation only;
+- empty explicit fields inherit the context value;
+- there is no public "clear this inherited ID" operation in the first contract.
+
+This keeps zero-value option structs ergonomic while preserving propagated IDs.
 
 ## Lifecycle Style
 
@@ -142,9 +152,14 @@ Long-lived operations use start/end handles. Instantaneous lifecycle points use
 event methods.
 
 Start methods return a handle with `End`, `Error`, and event methods relevant to
-that operation. Handles must be safe for a single logical operation; concurrency
-guarantees for handles and recorders are finalized in
-[fake-recorder.md](fake-recorder.md).
+that operation. `End` records successful or non-error terminal state. `Error`
+records failed terminal state. Callers should invoke exactly one terminal method
+per handle: either `End` or `Error`, not both. Cancellation is a terminal error
+state for active handles and can also be recorded as a lifecycle event when the
+consumer needs a run-level cancellation marker.
+
+Handles must be safe for a single logical operation; concurrency guarantees for
+handles and recorders are finalized in [fake-recorder.md](fake-recorder.md).
 
 Instrumentation helpers must not panic on exporter failure. Exact error
 reporting behavior is finalized in [failure-surface.md](failure-surface.md), but
@@ -162,6 +177,7 @@ defer session.End(einoobs.SessionEnd{})
 run := obs.StartRun(ctx, einoobs.RunStart{
     Correlation: corr,
     Name: "answer-user-message",
+    Metadata: einoobs.Metadata{"workflow": "chat"},
 })
 defer run.End(einoobs.RunEnd{})
 ```
@@ -169,6 +185,15 @@ defer run.End(einoobs.RunEnd{})
 `SessionStart`, `SessionEnd`, `RunStart`, and `RunEnd` should use primitives:
 strings, booleans, numeric counters, `time.Time`, `time.Duration`, maps of
 string metadata, and the shared `Correlation` type.
+
+Run/session failures use handle-level terminal errors:
+
+```go
+run.Error(einoobs.RunError{
+    Err: err,
+    Classification: "runtime",
+})
+```
 
 ## Provider And Model Call Helpers
 
@@ -192,6 +217,16 @@ Model helpers should support provider, model, retry attempt, token usage,
 latency, cancellation, and error fields without depending on provider SDK
 types.
 
+Model call failures use `Error` instead of an `End` value with error fields:
+
+```go
+call.Error(einoobs.ModelCallError{
+    Err: err,
+    Classification: "rate_limit",
+    Retryable: true,
+})
+```
+
 ## Streaming Helpers
 
 Streaming model turns use a start handle with chunk and terminal methods:
@@ -199,7 +234,7 @@ Streaming model turns use a start handle with chunk and terminal methods:
 ```go
 stream := obs.StartStream(ctx, einoobs.StreamStart{
     Correlation: corr,
-    ProviderModel: model,
+    ProviderModel: einoobs.ProviderModel{Provider: "openai", Model: "gpt-example"},
 })
 
 stream.Chunk(einoobs.StreamChunk{
@@ -208,13 +243,24 @@ stream.Chunk(einoobs.StreamChunk{
 })
 
 stream.End(einoobs.StreamEnd{
-    Usage: usage,
+    Usage: einoobs.TokenUsage{InputTokens: 100, OutputTokens: 80, TotalTokens: 180},
 })
 ```
 
 The stream contract must allow first-token latency, total latency, partial
 failure, cancellation, and final token usage to be represented after
 [schema.md](schema.md) is finalized.
+
+Stream failures and cancellations are terminal handle errors:
+
+```go
+stream.Error(einoobs.StreamError{
+    Err: err,
+    Classification: "canceled",
+    Canceled: true,
+    PartialUsage: einoobs.TokenUsage{InputTokens: 100, OutputTokens: 12},
+})
+```
 
 ## Tool Helpers
 
@@ -243,6 +289,29 @@ client-proposed tools. AG-UI-specific correlation is represented through
 `Correlation.ThreadID`, `Correlation.AGUIRunID`, `ToolCallID`, and ordinary
 metadata fields, not AG-UI runtime types.
 
+Tool materialization, settlement, and failure call shapes:
+
+```go
+obs.ToolMaterialized(ctx, einoobs.ToolMaterialized{
+    Correlation: corr,
+    ToolCallID: "tool-call-1",
+    ToolName: "search",
+    Metadata: einoobs.Metadata{"source": "client_proposed"},
+})
+
+tool.Error(einoobs.ToolCallError{
+    Err: err,
+    Classification: "tool_timeout",
+    Retryable: false,
+})
+
+obs.ToolSettled(ctx, einoobs.ToolSettled{
+    Correlation: corr,
+    ToolCallID: "tool-call-1",
+    Status: "failed",
+})
+```
+
 ## Lifecycle Event Helpers
 
 Instant events use methods on `Observer` or an active run/session handle:
@@ -265,6 +334,10 @@ Event structs must avoid raw payloads and provider-specific error types. Error
 classification should use stable strings plus wrapped `error` values where the
 failure-surface contract permits them.
 
+`CancellationEvent` and `ErrorEvent` are lifecycle markers, not substitutes for
+active operation terminal methods. If a model call, stream, tool call, run, or
+session is active, the active handle should receive `Error` exactly once.
+
 ## Acceptance Checks For Implementation Beads
 
 - Public helper inputs use primitives, standard library types, and local
@@ -275,3 +348,5 @@ failure-surface contract permits them.
   propagation call shapes.
 - Raw sensitive payload capture is not part of the public call shapes.
 - Failure behavior remains compatible with [failure-surface.md](failure-surface.md).
+- Public helpers copy `Summary.Fields` and `Metadata` maps before retaining
+  them.
