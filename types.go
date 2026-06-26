@@ -142,6 +142,27 @@ func cloneObservationAttributes(attrs map[string]any) map[string]any {
 
 func cloneObservationAttribute(value any) any {
 	switch v := value.(type) {
+	case Metadata:
+		out := make(Metadata, len(v))
+		for key, item := range v {
+			out[key] = item
+		}
+		return out
+	case map[string]string:
+		out := make(map[string]string, len(v))
+		for key, item := range v {
+			out[key] = item
+		}
+		return out
+	case Summary:
+		out := v
+		if v.Fields != nil {
+			out.Fields = make(map[string]string, len(v.Fields))
+			for key, item := range v.Fields {
+				out.Fields[key] = item
+			}
+		}
+		return out
 	case []byte:
 		out := make([]byte, len(v))
 		copy(out, v)

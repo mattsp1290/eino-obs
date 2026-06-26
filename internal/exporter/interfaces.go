@@ -3,6 +3,7 @@ package exporter
 import (
 	"context"
 
+	einoobs "github.com/mattsp1290/eino-obs"
 	"github.com/mattsp1290/eino-obs/internal/model"
 )
 
@@ -16,6 +17,11 @@ type Exporter interface {
 	Export(ctx context.Context, batch []model.Span) error
 	Flush(ctx context.Context) error
 	Shutdown(ctx context.Context) error
+}
+
+type PublicAdapter interface {
+	einoobs.Exporter
+	ExportInternal(ctx context.Context, batch []model.Span) error
 }
 
 type Snapshotter interface {
@@ -36,6 +42,7 @@ type Snapshot struct {
 	ShutdownCount         int64
 	CredentialValidations int64
 	ErrorHandlerCount     int64
+	OperationCounts       map[string]int64
 	LastFlushError        *ObservationError
 	LastShutdownError     *ObservationError
 }
@@ -49,14 +56,15 @@ type DroppedObservation struct {
 type ObservationError struct {
 	Operation      string
 	Classification string
-	Err            error
+	Type           string
+	Message        string
 	Retryable      bool
 	Dropped        bool
 }
 
 func (e ObservationError) Error() string {
-	if e.Err != nil {
-		return e.Err.Error()
+	if e.Message != "" {
+		return e.Message
 	}
 	if e.Classification != "" {
 		return e.Classification
@@ -65,8 +73,4 @@ func (e ObservationError) Error() string {
 		return e.Operation
 	}
 	return "observation error"
-}
-
-func (e ObservationError) Unwrap() error {
-	return e.Err
 }
