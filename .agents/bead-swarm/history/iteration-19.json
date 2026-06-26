@@ -1,0 +1,43 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 19,
+  "branch": "bead-swarm/iteration-19-redaction-policy-tests",
+  "slug": "redaction-policy-tests",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.33"],
+  "beads_done": ["eino-obs-6on.33"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial redaction-policy review requested tests for non-encrypted sensitive Summary.Name whole-summary omission, oversized summary field keys, and canonical lexical retention order.",
+    "Initial no-network review requested full-snapshot sensitive sentinel non-leakage, not only original key omission checks.",
+    "Updated tests to cover sensitive api-key summary names, oversized summary field keys, canonical-order overflow with raw-uppercase Z-overflow, and recursive no-network snapshot leak checks.",
+    "Focused re-reviews approved both blocker sets with no remaining blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "redaction-policy-coverage",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-19-redaction-policy-tests-2026-06-26/redaction-policy-coverage/06-re-review.md"
+    },
+    {
+      "reviewer": "no-network-redaction-coverage",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-19-redaction-policy-tests-2026-06-26/no-network-redaction-coverage/05-re-review.md"
+    }
+  ],
+  "completed_at": "2026-06-26T23:46:31Z",
+  "status": "complete"
+}
