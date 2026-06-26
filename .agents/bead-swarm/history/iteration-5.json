@@ -1,0 +1,41 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 5,
+  "branch": "bead-swarm/iteration-5-define-redaction-policy-omitted-field",
+  "slug": "define-redaction-policy-omitted-field",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.9"],
+  "beads_done": ["eino-obs-6on.9"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "First-pass privacy review requested Summary.Name sensitive filtering to close an encrypted reasoning leak path.",
+    "First-pass testability review requested a minimal redaction metadata shape, negative MaxSummaryBytes behavior, deterministic map/name/key limits, sensitive-key normalization, metadata defaults, and encrypted reasoning detection boundaries.",
+    "Updated redaction.md with deterministic rules and required tests; second-pass reviewers approved with no blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "privacy-policy-correctness",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-5-define-redaction-policy-omitted-field-2026-06-26-pass2/privacy-policy-correctness/04-action-items.md"
+    },
+    {
+      "reviewer": "redaction-testability-maintainability",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-5-define-redaction-policy-omitted-field-2026-06-26-pass2/redaction-testability-maintainability/04-action-items.md"
+    }
+  ],
+  "status": "complete"
+}
