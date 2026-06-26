@@ -1,0 +1,45 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 20,
+  "branch": "bead-swarm/iteration-20-session-run-helpers",
+  "slug": "session-run-helpers",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.19"],
+  "beads_done": ["eino-obs-6on.19"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial public-helper review requested preserving empty public ObservationID and TraceID instead of generating helper IDs.",
+    "Initial lifecycle/export review requested parenting Session.StartRun children to the actual session observation rather than stale context parents.",
+    "Initial lifecycle/export review requested terminal export resilience when the start context is canceled before End or Error.",
+    "Updated helpers to retain only caller-supplied identity, derive session child defaults from the session handle, and store a non-canceling terminal export context.",
+    "Focused re-reviews approved both blocker sets with no remaining blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "public-helper-contract",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-20-session-run-helpers-2026-06-26/public-helper-contract/06-re-review.md"
+    },
+    {
+      "reviewer": "lifecycle-export-coverage",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-20-session-run-helpers-2026-06-26/lifecycle-export-coverage/06-re-review.md"
+    }
+  ],
+  "completed_at": "2026-06-26T23:59:04Z",
+  "status": "complete"
+}
