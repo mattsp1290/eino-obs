@@ -1,0 +1,43 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 10,
+  "branch": "bead-swarm/iteration-10-define-exporter-configuration-contract",
+  "slug": "define-exporter-configuration-contract",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.12"],
+  "beads_done": ["eino-obs-6on.12"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial config/auth/endpoint review requested explicit Datadog payload/tag mapping for Service, Env, and Version.",
+    "Initial retry/testability review requested stable ObservationError classifications and exact MaxRetries/backoff attempt semantics.",
+    "Updated exporter-config.md with service/env/version mapping, response classification table, retry attempt counting, deterministic sleep/jitter test hooks, and post-shutdown behavior.",
+    "Focused re-reviews approved both blocker sets with no remaining blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "config-auth-endpoint-contract",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-10-define-exporter-configuration-contract-2026-06-26/config-auth-endpoint-contract/05-re-review.md"
+    },
+    {
+      "reviewer": "retry-testability-contract",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-10-define-exporter-configuration-contract-2026-06-26/retry-testability-contract/05-re-review.md"
+    }
+  ],
+  "completed_at": "2026-06-26T21:55:48Z",
+  "status": "complete"
+}
