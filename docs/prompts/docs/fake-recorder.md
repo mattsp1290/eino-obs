@@ -40,8 +40,11 @@ type Snapshot struct {
     ExportCount int64
     FlushCount int64
     ShutdownCount int64
-    LastFlushError string
-    LastShutdownError string
+    CredentialValidationCount int64
+    ErrorHandlerCount int64
+    OperationCounts map[string]int64
+    LastFlushError *ObservationErrorSnapshot
+    LastShutdownError *ObservationErrorSnapshot
 }
 ```
 
@@ -58,8 +61,9 @@ enough data for tests to assert:
   separately from application operation errors.
 
 Snapshot values are immutable from the caller's point of view. Implementations
-must deep-copy slices, maps, redaction records, nested events, and error values
-before returning them.
+must deep-copy slices, maps, redaction records, nested events, and
+snapshot-safe error fields before returning them. Snapshots must not expose raw
+Go `error` values.
 
 ## Ordering Guarantees
 
@@ -93,11 +97,15 @@ The fake recorder and fake exporter must be safe for concurrent calls to:
 - reset state;
 - flush;
 - shutdown;
-- configure future failure injection before the first concurrent operation.
 
 Internal state must be protected by synchronization. Snapshot and reset methods
 must not race with active recording, flushing, or shutdown under `go test
 -race`.
+
+Failure-injection configuration is setup-only. It must be safe to configure
+before first use, but implementations may reject or panic on configuration after
+the first record, export, flush, shutdown, credential-validation, or error
+handler attempt. This keeps operation-scoped call indexes deterministic.
 
 Handles from the root observer remain single-logical-operation handles as
 defined by [public-api.md](public-api.md), but fake packages must tolerate
@@ -123,8 +131,8 @@ dirty state, and record counters. Exporter snapshots should include:
 - exported observations, in batch send order;
 - pending observations retained after retryable failures;
 - dropped observations after non-retryable failures or bounded-capacity drops;
-- operation counters for export, flush, shutdown, validation, and hooks where
-  applicable;
+- operation counters for record, export, flush, shutdown,
+  credential_validation, and error_handler attempts;
 - last flush and shutdown errors;
 - all retained observation errors in occurrence order.
 
@@ -145,11 +153,22 @@ increment `DroppedErrorHistory`, and keep `LastError` accurate.
 - preserve static configuration such as service name, redaction options,
   capacity limits, and configured failure injection plan unless the caller uses
   an explicit `ResetFailures` or constructs a new fake;
-- be safe while no test goroutine is intentionally using the same fake for an
-  in-flight assertion.
+- be synchronized with record, export, flush, shutdown, snapshot, and hook/error
+  recording state updates.
 
 After `Reset`, a new snapshot should be indistinguishable from a newly
 constructed fake with the same configuration and failure plan.
+
+`Reset` has a linearization point when it acquires the fake's state lock.
+Operations whose state updates were accepted before that point are cleared.
+Operations accepted after that point belong to the new epoch and receive
+post-reset sequence numbers and counters. Operations already in progress when
+`Reset` starts must publish any later state updates only after re-checking the
+current epoch; if their epoch was reset, they must drop those stale updates
+instead of reintroducing pre-reset observations, pending batches, errors, or
+hook results. Tests may assert race safety across overlapping reset calls, but
+must not assert semantic contents for operations intentionally racing across the
+reset boundary beyond this epoch rule.
 
 ## Post-Redaction Inspection
 
@@ -166,6 +185,12 @@ Redaction records must remain attached to the observation or event where the
 redaction happened. A global snapshot may also aggregate redaction records for
 convenience, but aggregation must not replace per-observation records.
 
+`ObservationErrorSnapshot` must be redaction-safe. It should expose stable
+fields such as operation, classification, retryable, dropped, canceled, sentinel
+name, safe error type, and redacted message when policy allows it. It must not
+hold a raw `error` interface value. `LastFlushError` and `LastShutdownError`
+must reference this snapshot-safe shape, not `error.Error()` strings.
+
 ## Flush And Shutdown Behavior
 
 The fake exporter must implement `Export`, `Flush`, and `Shutdown` with the
@@ -175,15 +200,21 @@ failure behavior from [failure-surface.md](failure-surface.md).
 
 - defensively copies the batch before retaining it;
 - increments the export call counter once per attempted batch;
+- consumes one `export` failure-injection call index for each attempted batch,
+  including attempts made from `Flush` or `Shutdown` drain logic;
 - appends observations to exported state on success;
 - appends retryable failed batches to pending state when practical;
 - marks non-retryable failed observations as dropped;
-- respects context cancellation before retaining a successful export.
+- if `ctx` is canceled before acceptance, records no successful export and
+  returns the context error as an observation error;
+- if `ctx` is canceled after acceptance, retains the already accepted state and
+  returns according to the completed operation state.
 
 `Flush(ctx)`:
 
 - increments the public flush counter once per call;
 - retries pending observations known at call start;
+- each retry send is an export batch attempt and increments `ExportCount`;
 - returns nil only when pending observations are delivered and dirty state is
   clear;
 - returns an aggregate error compatible with `errors.Join` when failures remain.
@@ -191,10 +222,21 @@ failure behavior from [failure-surface.md](failure-surface.md).
 `Shutdown(ctx)`:
 
 - increments the public shutdown counter once per call;
-- drains through `Flush` or equivalent behavior;
-- prevents later exports from being accepted;
+- drains through `Flush` or equivalent behavior. If it calls public `Flush`, it
+  increments `FlushCount`; if it uses equivalent internal drain logic, it must
+  still increment `ExportCount` for each attempted pending-batch send and must
+  expose the drain error as `LastShutdownError`;
+- prevents later exports from being accepted once shutdown starts;
 - is idempotent;
 - exposes final state through snapshots.
+
+After shutdown starts, new `Export` calls must not accept or enqueue
+observations. They return or record an `ObservationErrorSnapshot` with operation
+`export`, classification `exporter_closed`, `Retryable: false`, and `Dropped:
+true`. Post-shutdown helper no-ops from the root observer still follow
+[failure-surface.md](failure-surface.md): they do not invoke user hooks and
+record at most one bounded local `exporter_closed` state error when snapshots
+are available.
 
 When there is no real exporter configured, the default no-network recorder still
 supports `Flush` and `Shutdown`; they are synchronization points over local
@@ -212,7 +254,7 @@ Required operations:
 - `flush`: each public `Flush` call;
 - `shutdown`: each public `Shutdown` call;
 - `credential_validation`: each validation attempt;
-- `hook`: each attempted user hook invocation.
+- `error_handler`: each attempted user error-handler/hook invocation.
 
 An injection rule should be able to specify:
 
@@ -230,8 +272,12 @@ are independent.
 
 Failure injection configuration must be deterministic and inspectable. Snapshot
 state should expose operation counters so tests can assert exactly which call
-failed. Implementations may require injection plans to be configured before
-concurrent use begins.
+failed. Injection operation names match `error.operation` values from
+[schema.md](schema.md); older test prose may call the `error_handler` operation
+"hook", but recorded errors and snapshot counters must use `error_handler`.
+Injection plans are immutable after first use unless an implementation provides
+an explicitly synchronized `ResetFailures` that also resets all operation
+counters.
 
 ## Capacity And Dropping
 
@@ -271,8 +317,10 @@ Implementation beads must test:
   successful flush;
 - non-retryable export failures are dropped and visible in snapshots;
 - operation-scoped call-indexed failure injection works for record, export,
-  flush, shutdown, credential validation, and hook paths;
+  flush, shutdown, credential validation, and error-handler paths;
 - injected failures count attempted calls even when they fail;
+- `Flush` and `Shutdown` retry sends increment `ExportCount` and consume
+  `export` failure-injection indexes;
 - dirty state, last errors, error history overflow, and dropped counts are
   inspectable without live credentials.
 
