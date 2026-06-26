@@ -34,6 +34,9 @@ func New(config Config, opts ...Option) *Observer {
 	if configErr == nil {
 		configErr = cfg.Validate()
 	}
+	if configErr == nil && cfg.Exporter == nil {
+		cfg.Exporter = NewNoNetworkExporter(cfg.Redaction)
+	}
 	return &Observer{config: cfg, configErr: configErr}
 }
 
@@ -95,6 +98,37 @@ func (o *Observer) Exporter() Exporter {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.config.Exporter
+}
+
+func (o *Observer) Snapshot() NoNetworkSnapshot {
+	if o == nil {
+		return NoNetworkSnapshot{}
+	}
+	exporter := o.Exporter()
+	snapshotter, ok := exporter.(interface {
+		Snapshot() NoNetworkSnapshot
+	})
+	if !ok {
+		return NoNetworkSnapshot{}
+	}
+	return snapshotter.Snapshot()
+}
+
+func (o *Observer) Reset() {
+	if o == nil {
+		return
+	}
+	exporter := o.Exporter()
+	resetter, ok := exporter.(interface {
+		Reset()
+	})
+	if ok {
+		resetter.Reset()
+	}
+	o.mu.Lock()
+	o.shutdown = false
+	o.lastShutdownErr = nil
+	o.mu.Unlock()
 }
 
 func (o *Observer) Flush(ctx context.Context) error {
