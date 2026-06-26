@@ -1,0 +1,43 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 13,
+  "branch": "bead-swarm/iteration-13-implement-internal-normalized-model",
+  "slug": "implement-internal-normalized-model",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.14"],
+  "beads_done": ["eino-obs-6on.14"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial schema/model coverage review requested stricter terminal error/cancel fields, tool lifecycle status rules, status-dependent attributes, and canonical error representation.",
+    "Initial validation/copy review requested scalar attribute validation, defensive clone behavior, event category checks, UTC timestamp invariants, and tests for these cases.",
+    "Updated internal/model with explicit pointer error flags, schema-aware attribute typing, tool lifecycle validation, canonical ObservationError validation, UTC checks, and deeper clone support.",
+    "Focused re-reviews approved both blocker sets with no remaining blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "schema-model-coverage",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-13-implement-internal-normalized-model-2026-06-26/schema-model-coverage/05-re-review.md"
+    },
+    {
+      "reviewer": "validation-copy-quality",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-13-implement-internal-normalized-model-2026-06-26/validation-copy-quality/05-re-review.md"
+    }
+  ],
+  "completed_at": "2026-06-26T22:27:12Z",
+  "status": "complete"
+}
