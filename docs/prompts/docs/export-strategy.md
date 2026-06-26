@@ -6,8 +6,8 @@ This file is the contract for `eino-obs-6on.6`.
 
 For `v0.1.0`, implement exactly one real Datadog-compatible export path:
 
-**Datadog LLM Observability HTTP intake API behind an internal exporter
-abstraction.**
+**Direct Datadog LLM Observability trace spans HTTP API behind an internal
+exporter abstraction.**
 
 The first release should not implement an OpenTelemetry/OTLP exporter. The
 internal normalized model and exporter interface should remain transport-neutral
@@ -23,13 +23,37 @@ Primary docs checked on 2026-06-26:
 - OpenTelemetry GenAI semantic conventions:
   <https://opentelemetry.io/docs/specs/semconv/gen-ai/>
 
+## Selected HTTP Surface
+
+The selected `v0.1.0` target is the documented Datadog LLM Observability trace
+spans HTTP API. Downstream beads must derive endpoint, auth, timestamp, payload,
+and response-handling details from that LLM Observability HTTP spans API.
+
+The selected target is not:
+
+- Datadog generic trace intake;
+- Datadog logs intake;
+- Datadog Agent-only trace submission;
+- Datadog SDK-only export behavior;
+- OpenTelemetry SDK or OTLP export.
+
+[schema.md](schema.md) must define normalized-to-Datadog payload mapping against
+the selected LLM Observability HTTP spans payload. OTel GenAI names may appear
+only as future-facing mapping notes for `v0.1.0`.
+
+[exporter-config.md](exporter-config.md) must define site-to-endpoint defaults,
+endpoint override behavior for fake/local servers, API key header behavior,
+credential validation, and no-live-credential test expectations for this
+selected HTTP surface.
+
 ## Rationale
 
 The library goal is a stable Datadog AI/LLM observability API for `eino-agent`.
 The first exporter should minimize semantic translation risk and avoid requiring
 consumers to understand Datadog endpoint details at every call site.
 
-The Datadog HTTP intake path is the most direct fit for the first release:
+The Datadog LLM Observability trace spans HTTP API is the most direct fit for
+the first release:
 
 - It targets Datadog LLM Observability without depending on an OpenTelemetry
   collector, SDK, resource configuration, or semantic-convention maturity at
@@ -92,13 +116,13 @@ Implementation guidance:
   not OpenTelemetry SDK objects.
 - `internal/exporter` owns batching, flush/shutdown contracts, retry policy, and
   transport-neutral exporter interfaces.
-- The first real exporter package maps the normalized model to Datadog HTTP
-  payloads.
+- The first real exporter package maps the normalized model to the selected
+  Datadog LLM Observability HTTP spans payload.
 - Datadog HTTP config belongs in the exporter constructor and environment
   parsing described by [exporter-config.md](exporter-config.md).
-- OTel GenAI names can be recorded in [schema.md](schema.md) as a future mapping
-  column, but implementation beads must not build an OTLP exporter for
-  `v0.1.0`.
+- OTel GenAI names can be recorded in [schema.md](schema.md) as an informational
+  future mapping column, but implementation beads must not build an OTLP
+  exporter for `v0.1.0`.
 
 ## Implementation Beads Unblocked
 
@@ -118,6 +142,8 @@ This decision unblocks:
 
 - No OTLP exporter implementation.
 - No OpenTelemetry SDK dependency in the public API.
+- No Datadog generic traces intake, logs intake, Agent-only trace submission, or
+  Datadog SDK-only exporter path.
 - No requirement for a collector or live Datadog credentials in normal tests.
 - No direct dependency on concrete `eino-agent`, provider, AG-UI, or Datadog SDK
   runtime types at instrumentation call sites.
