@@ -8,7 +8,9 @@ import (
 )
 
 type testExporter struct {
-	exported []Observation
+	exported  []Observation
+	flushes   int
+	shutdowns int
 }
 
 func (t *testExporter) Export(_ context.Context, batch []Observation) error {
@@ -17,10 +19,12 @@ func (t *testExporter) Export(_ context.Context, batch []Observation) error {
 }
 
 func (t *testExporter) Flush(context.Context) error {
+	t.flushes++
 	return nil
 }
 
 func (t *testExporter) Shutdown(context.Context) error {
+	t.shutdowns++
 	return nil
 }
 
