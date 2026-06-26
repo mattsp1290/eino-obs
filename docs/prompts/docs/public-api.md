@@ -41,6 +41,11 @@ type Correlation struct {
     ThreadID string
     AGUIRunID string
     ToolCallID string
+    Provider string
+    Model string
+    TraceID string
+    ObservationID string
+    ParentObservationID string
 }
 
 type ProviderModel struct {
@@ -186,6 +191,11 @@ This keeps zero-value option structs ergonomic while preserving propagated IDs.
 `Correlation.ToolCallID` is available for context propagation when a tool call
 creates child observations. Tool helper `ToolCallID` fields also populate
 `correlation.tool_call_id` and `tool.call_id` on tool observations.
+`Correlation.Provider` and `Correlation.Model` propagate provider/model context
+for helpers that do not receive an explicit `ProviderModel`. `TraceID`,
+`ObservationID`, and `ParentObservationID` propagate normalized trace/span
+identity for custom parent resolution and map to `trace_id`, `obs_id`, and
+`parent_obs_id`.
 
 ## Lifecycle Style
 

@@ -132,6 +132,10 @@ field must be omitted. Supported correlation fields are:
 
 `correlation.tool_call_id` comes from public `Correlation.ToolCallID` or from a
 tool helper `ToolCallID` field. Tool observations also set `tool.call_id`.
+Public `Correlation.TraceID`, `Correlation.ObservationID`, and
+`Correlation.ParentObservationID` carry the normalized identity fields
+`trace_id`, `obs_id`, and `parent_obs_id` when callers need explicit parent
+resolution.
 
 ## Optional Common Attributes
 

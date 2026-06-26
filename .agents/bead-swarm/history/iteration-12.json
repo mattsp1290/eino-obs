@@ -1,0 +1,42 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 12,
+  "branch": "bead-swarm/iteration-12-implement-correlation-context-helpers",
+  "slug": "implement-correlation-context-helpers",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.17"],
+  "beads_done": ["eino-obs-6on.17"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": false,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "API compatibility review approved the public correlation/context helpers and documented post-freeze field expansion for provider/model and trace/span context.",
+    "Context propagation semantics review approved nil-safe storage/retrieval, field-by-field merge behavior, and acceptance coverage.",
+    "Both reviewers independently ran go test ./... successfully and found no blocking issues."
+  ],
+  "reviews": [
+    {
+      "reviewer": "api-compatibility-correlation",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-12-implement-correlation-context-helpers-2026-06-26/api-compatibility-correlation/00-overview.md"
+    },
+    {
+      "reviewer": "context-propagation-semantics",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-12-implement-correlation-context-helpers-2026-06-26/context-propagation-semantics/00-overview.md"
+    }
+  ],
+  "completed_at": "2026-06-26T22:13:23Z",
+  "status": "complete"
+}
