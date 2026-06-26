@@ -35,7 +35,13 @@ func TestNewAppliesOptionsAndReturnsDefensiveConfig(t *testing.T) {
 }
 
 func TestNewRejectsInvalidRedactionConfig(t *testing.T) {
-	observer := New(Config{Redaction: RedactionOptions{MaxSummaryBytes: -1}})
+	var handled []ObservationError
+	observer := New(Config{
+		Redaction: RedactionOptions{MaxSummaryBytes: -1},
+		ErrorHandler: func(_ context.Context, err ObservationError) {
+			handled = append(handled, err)
+		},
+	})
 	err := observer.Flush(context.Background())
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("Flush() error = %v, want ErrInvalidConfig", err)
@@ -46,6 +52,9 @@ func TestNewRejectsInvalidRedactionConfig(t *testing.T) {
 	}
 	if obsErr.Operation != "redact" || obsErr.Classification != "invalid_config" || !obsErr.Dropped {
 		t.Fatalf("ObservationError = %#v", obsErr)
+	}
+	if len(handled) != 1 || handled[0].Classification != "invalid_config" {
+		t.Fatalf("handled = %#v", handled)
 	}
 }
 
@@ -110,5 +119,45 @@ func TestObserverLifecycleErrorsNormalizeAndInvokeHandler(t *testing.T) {
 	}
 	if len(handled) != 1 || handled[0].Operation != "flush" {
 		t.Fatalf("handled = %#v", handled)
+	}
+}
+
+func TestObserverShutdownFailureIsRetained(t *testing.T) {
+	cause := errors.New("shutdown failed")
+	exporter := &testExporter{shutdownErr: cause}
+	var handled []ObservationError
+	observer := New(Config{
+		Exporter: exporter,
+		ErrorHandler: func(_ context.Context, err ObservationError) {
+			handled = append(handled, err)
+		},
+	})
+
+	err := observer.Shutdown(context.Background())
+	if !errors.Is(err, cause) {
+		t.Fatalf("Shutdown() error = %v, want cause", err)
+	}
+	var obsErr ObservationError
+	if !errors.As(err, &obsErr) {
+		t.Fatalf("Shutdown() error = %v, want ObservationError", err)
+	}
+	if obsErr.Operation != "shutdown" || obsErr.Classification != "exporter_failure" || !obsErr.Retryable {
+		t.Fatalf("ObservationError = %#v", obsErr)
+	}
+	if len(handled) != 1 || handled[0].Operation != "shutdown" {
+		t.Fatalf("handled = %#v", handled)
+	}
+
+	if err := observer.Shutdown(context.Background()); !errors.Is(err, cause) {
+		t.Fatalf("second Shutdown() error = %v, want retained cause", err)
+	}
+	if exporter.shutdowns != 1 {
+		t.Fatalf("second Shutdown delegated, count = %d", exporter.shutdowns)
+	}
+	if err := observer.Flush(context.Background()); !errors.Is(err, cause) {
+		t.Fatalf("post-failed-shutdown Flush() error = %v, want retained cause", err)
+	}
+	if exporter.flushes != 0 {
+		t.Fatalf("post-failed-shutdown Flush delegated, count = %d", exporter.flushes)
 	}
 }

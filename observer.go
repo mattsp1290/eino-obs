@@ -12,10 +12,11 @@ var ErrInvalidConfig = errors.New("invalid eino-obs config")
 type Option func(*Config) error
 
 type Observer struct {
-	mu        sync.Mutex
-	config    Config
-	configErr error
-	shutdown  bool
+	mu              sync.Mutex
+	config          Config
+	configErr       error
+	shutdown        bool
+	lastShutdownErr *ObservationError
 }
 
 func New(config Config, opts ...Option) *Observer {
@@ -100,13 +101,19 @@ func (o *Observer) Flush(ctx context.Context) error {
 	if o == nil {
 		return nil
 	}
-	exporter, configErr, shutdown := o.lifecycleState()
+	exporter, configErr, shutdown, lastShutdownErr := o.lifecycleState()
 	if configErr != nil {
 		err := normalizeObservationError("redact", "invalid_config", configErr, false, true)
 		o.handleError(ctx, err)
 		return err
 	}
-	if exporter == nil || shutdown {
+	if shutdown {
+		if lastShutdownErr != nil {
+			return *lastShutdownErr
+		}
+		return nil
+	}
+	if exporter == nil {
 		return nil
 	}
 	if err := exporter.Flush(ctx); err != nil {
@@ -121,8 +128,11 @@ func (o *Observer) Shutdown(ctx context.Context) error {
 	if o == nil {
 		return nil
 	}
-	exporter, configErr, alreadyShutdown := o.markShutdown()
+	exporter, configErr, alreadyShutdown, lastShutdownErr := o.markShutdown()
 	if alreadyShutdown {
+		if lastShutdownErr != nil {
+			return *lastShutdownErr
+		}
 		return nil
 	}
 	if configErr != nil {
@@ -135,9 +145,11 @@ func (o *Observer) Shutdown(ctx context.Context) error {
 	}
 	if err := exporter.Shutdown(ctx); err != nil {
 		obsErr := normalizeObservationError("shutdown", "exporter_failure", err, true, false)
+		o.setLastShutdownError(obsErr)
 		o.handleError(ctx, obsErr)
 		return obsErr
 	}
+	o.clearLastShutdownError()
 	return nil
 }
 
@@ -158,18 +170,31 @@ func (c Config) Validate() error {
 	return nil
 }
 
-func (o *Observer) lifecycleState() (Exporter, error, bool) {
+func (o *Observer) lifecycleState() (Exporter, error, bool, *ObservationError) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	return o.config.Exporter, o.configErr, o.shutdown
+	return o.config.Exporter, o.configErr, o.shutdown, cloneObservationErrorPtr(o.lastShutdownErr)
 }
 
-func (o *Observer) markShutdown() (Exporter, error, bool) {
+func (o *Observer) markShutdown() (Exporter, error, bool, *ObservationError) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	alreadyShutdown := o.shutdown
 	o.shutdown = true
-	return o.config.Exporter, o.configErr, alreadyShutdown
+	return o.config.Exporter, o.configErr, alreadyShutdown, cloneObservationErrorPtr(o.lastShutdownErr)
+}
+
+func (o *Observer) setLastShutdownError(err ObservationError) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	errCopy := err
+	o.lastShutdownErr = &errCopy
+}
+
+func (o *Observer) clearLastShutdownError() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.lastShutdownErr = nil
 }
 
 func (o *Observer) handleError(ctx context.Context, err ObservationError) {
@@ -180,6 +205,14 @@ func (o *Observer) handleError(ctx context.Context, err ObservationError) {
 		return
 	}
 	handler(ctx, err)
+}
+
+func cloneObservationErrorPtr(err *ObservationError) *ObservationError {
+	if err == nil {
+		return nil
+	}
+	out := *err
+	return &out
 }
 
 func normalizeObservationError(operation string, classification string, err error, retryable bool, dropped bool) ObservationError {
