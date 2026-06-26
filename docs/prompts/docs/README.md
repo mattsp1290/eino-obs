@@ -7,13 +7,19 @@ issue text.
 ## Files
 
 - [architecture.md](architecture.md): export strategy and package boundary
-  decisions.
+  overview and cross-topic architecture notes.
+- [export-strategy.md](export-strategy.md): first-release Datadog-compatible
+  export path decision.
+- [public-api.md](public-api.md): exported helper, type, context propagation,
+  and lifecycle contract.
 - [schema.md](schema.md): normalized span and event model, attribute naming, and
   hierarchy rules.
 - [redaction.md](redaction.md): default privacy behavior, opt-in summaries, and
   sensitive-field handling.
 - [fake-recorder.md](fake-recorder.md): no-network recorder/exporter contract for
   tests.
+- [failure-surface.md](failure-surface.md): instrumentation, flush, shutdown,
+  hook, and recorder-state failure behavior.
 - [exporter-config.md](exporter-config.md): Datadog-compatible exporter
   configuration, batching, retries, credentials, and endpoint notes.
 - [examples.md](examples.md): public examples and documentation plan for

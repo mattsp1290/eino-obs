@@ -1,14 +1,17 @@
 # Architecture Decisions
 
-Use this file for decisions about the first export strategy, public/internal
-package boundaries, and whether the implementation uses the Datadog LLM
-Observability HTTP API, OpenTelemetry GenAI/OTLP, or a thin abstraction that can
-support both.
+Use this file for cross-topic architecture notes and links. Narrow decisions
+belong in their reserved files so each follow-on bead has one obvious edit
+target.
 
 ## Pending Beads
 
-- `eino-obs-6on.6`: decide the export strategy.
-- `eino-obs-6on.7`: define the public API contract and helper lifecycle style.
+- `eino-obs-6on.6`: decide the export strategy in
+  [export-strategy.md](export-strategy.md).
+- `eino-obs-6on.7`: define the public API contract and helper lifecycle style
+  in [public-api.md](public-api.md).
+- `eino-obs-6on.11`: decide the failure surface in
+  [failure-surface.md](failure-surface.md).
 
 ## Context To Preserve
 
