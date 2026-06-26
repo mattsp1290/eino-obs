@@ -72,6 +72,19 @@ func TestSensitiveSummaryNameOmitsWholeSummary(t *testing.T) {
 	if records[0].OriginalBytes != 0 || records[0].RetainedBytes != 0 {
 		t.Fatalf("encrypted reasoning record counted bytes: %#v", records[0])
 	}
+
+	attrs, records, err = SummaryAttributes("genai.request.summary", "summary", InputSummary, Summary{
+		Name:   "api key",
+		Text:   "safe-looking text",
+		Fields: map[string]string{"safe": "safe-looking field"},
+	}, Options{CaptureInputSummary: true})
+	if err != nil {
+		t.Fatalf("SummaryAttributes() non-encrypted sensitive name error = %v", err)
+	}
+	if len(attrs) != 0 {
+		t.Fatalf("non-encrypted sensitive summary attrs = %v, want none", attrs)
+	}
+	assertRecord(t, records, "summary", ReasonDefaultOmitted, 0, 0)
 }
 
 func TestMetadataAttributesBoundsSensitiveKeysAndDeterministicOverflow(t *testing.T) {
@@ -280,6 +293,44 @@ func TestOversizedSummaryAndMetadataNamesAreOmitted(t *testing.T) {
 		t.Fatalf("oversized metadata attrs = %#v, want omitted", attrs)
 	}
 	assertRecord(t, records, "metadata."+oversizedName, ReasonFieldLimitExceeded, len(oversizedName), 0)
+
+	attrs, records, err = SummaryAttributes("genai.request.summary", "summary", InputSummary, Summary{
+		Name:   "safe",
+		Fields: map[string]string{oversizedName: "field"},
+	}, Options{CaptureInputSummary: true})
+	if err != nil {
+		t.Fatalf("SummaryAttributes() oversized field key error = %v", err)
+	}
+	if _, ok := attrs["genai.request.summary.fields."+oversizedName]; ok {
+		t.Fatalf("oversized summary field key was retained")
+	}
+	assertRecord(t, records, "summary.fields."+oversizedName, ReasonFieldLimitExceeded, len(oversizedName), 0)
+}
+
+func TestOversizedMapsRetainCanonicalLexicalFirstEntries(t *testing.T) {
+	metadata := map[string]string{}
+	for i := 0; i < MaxMapEntries; i++ {
+		metadata[fmt.Sprintf("keep-%02d", i)] = "safe"
+	}
+	metadata["zz-overflow"] = "drop"
+
+	attrs, records, err := MetadataAttributes(metadata, Options{})
+	if err != nil {
+		t.Fatalf("MetadataAttributes() error = %v", err)
+	}
+	if len(attrs) != MaxMapEntries {
+		t.Fatalf("retained attrs = %d, want %d", len(attrs), MaxMapEntries)
+	}
+	for i := 0; i < MaxMapEntries; i++ {
+		key := fmt.Sprintf("metadata.keep-%02d", i)
+		if _, ok := attrs[key]; !ok {
+			t.Fatalf("expected retained key %q missing from %#v", key, attrs)
+		}
+	}
+	if _, ok := attrs["metadata.zz-overflow"]; ok {
+		t.Fatalf("overflow key was retained")
+	}
+	assertRecord(t, records, "metadata.zz-overflow", ReasonFieldLimitExceeded, len("drop"), 0)
 }
 
 func TestApplySpanRedactsEncryptedReasoningErrorMessageWithMetadata(t *testing.T) {

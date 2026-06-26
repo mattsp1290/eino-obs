@@ -2,6 +2,9 @@ package einoobs
 
 import (
 	"context"
+	"fmt"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -187,6 +190,11 @@ func TestNoNetworkSnapshotPreservesNestedEventNameAndError(t *testing.T) {
 }
 
 func TestNoNetworkSnapshotExposesRedactionMetadataWithoutCredentials(t *testing.T) {
+	const rawPrompt = "RAW_PROMPT_DO_NOT_LEAK_6on33"
+	const apiSecret = "API_SECRET_DO_NOT_LEAK_6on33"
+	const toolPayload = "TOOL_PAYLOAD_DO_NOT_LEAK_6on33"
+	const attachmentPayload = "ATTACHMENT_DO_NOT_LEAK_6on33"
+	const reasoningPayload = "REASONING_DO_NOT_LEAK_6on33"
 	observer := New(Config{
 		Redaction: RedactionOptions{CaptureInputSummary: true, MaxSummaryBytes: 3},
 	})
@@ -200,9 +208,12 @@ func TestNoNetworkSnapshotExposesRedactionMetadataWithoutCredentials(t *testing.
 		Attributes: map[string]any{
 			"genai.provider":        "openai",
 			"genai.model":           "gpt-example",
-			"prompt.text":           "raw prompt",
+			"prompt.text":           rawPrompt,
 			"genai.request.summary": "hello",
-			"metadata.api_key":      "secret",
+			"metadata.api_key":      apiSecret,
+			"tool.input.payload":    toolPayload,
+			"attachment.bytes":      attachmentPayload,
+			"reasoning.text":        reasoningPayload,
 		},
 	}})
 	if err != nil {
@@ -222,6 +233,10 @@ func TestNoNetworkSnapshotExposesRedactionMetadataWithoutCredentials(t *testing.
 	assertPublicRedactionRecord(t, obs.Redaction, "prompt.text", "default_omitted")
 	assertPublicRedactionRecord(t, obs.Redaction, "metadata.api_key", "default_omitted")
 	assertPublicRedactionRecord(t, obs.Redaction, "genai.request.summary", "summary_truncated")
+	assertPublicRedactionRecord(t, obs.Redaction, "tool.input.payload", "default_omitted")
+	assertPublicRedactionRecord(t, obs.Redaction, "attachment.bytes", "default_omitted")
+	assertPublicRedactionRecord(t, obs.Redaction, "reasoning.text", "default_omitted")
+	assertNoSnapshotLeak(t, observer.Snapshot(), rawPrompt, apiSecret, toolPayload, attachmentPayload, reasoningPayload)
 }
 
 type errSentinel struct{}
@@ -238,4 +253,62 @@ func assertPublicRedactionRecord(t *testing.T, records []RedactionRecord, path s
 		}
 	}
 	t.Fatalf("missing public redaction record path=%s reason=%s in %#v", path, reason, records)
+}
+
+func assertNoSnapshotLeak(t *testing.T, snapshot NoNetworkSnapshot, forbidden ...string) {
+	t.Helper()
+	visited := map[uintptr]bool{}
+	assertNoValueLeak(t, reflect.ValueOf(snapshot), "snapshot", visited, forbidden...)
+}
+
+func assertNoValueLeak(t *testing.T, value reflect.Value, path string, visited map[uintptr]bool, forbidden ...string) {
+	t.Helper()
+	if !value.IsValid() {
+		return
+	}
+	if value.Kind() == reflect.Interface || value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			return
+		}
+		if value.Kind() == reflect.Pointer {
+			ptr := value.Pointer()
+			if visited[ptr] {
+				return
+			}
+			visited[ptr] = true
+		}
+		assertNoValueLeak(t, value.Elem(), path, visited, forbidden...)
+		return
+	}
+	switch value.Kind() {
+	case reflect.String:
+		got := value.String()
+		for _, needle := range forbidden {
+			if strings.Contains(got, needle) {
+				t.Fatalf("snapshot leak at %s: %q contains %q", path, got, needle)
+			}
+		}
+	case reflect.Slice, reflect.Array:
+		if value.Type().Elem().Kind() == reflect.Uint8 {
+			got := string(value.Bytes())
+			for _, needle := range forbidden {
+				if strings.Contains(got, needle) {
+					t.Fatalf("snapshot byte leak at %s: %q contains %q", path, got, needle)
+				}
+			}
+			return
+		}
+		for i := 0; i < value.Len(); i++ {
+			assertNoValueLeak(t, value.Index(i), fmt.Sprintf("%s[%d]", path, i), visited, forbidden...)
+		}
+	case reflect.Map:
+		for _, key := range value.MapKeys() {
+			assertNoValueLeak(t, key, path+".<key>", visited, forbidden...)
+			assertNoValueLeak(t, value.MapIndex(key), path+"["+fmt.Sprint(key.Interface())+"]", visited, forbidden...)
+		}
+	case reflect.Struct:
+		for i := 0; i < value.NumField(); i++ {
+			assertNoValueLeak(t, value.Field(i), path+"."+value.Type().Field(i).Name, visited, forbidden...)
+		}
+	}
 }
