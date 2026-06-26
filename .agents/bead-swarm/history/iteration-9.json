@@ -1,0 +1,43 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 9,
+  "branch": "bead-swarm/iteration-9-define-fake-recorder-exporter-contract",
+  "slug": "define-fake-recorder-exporter-contract",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.10"],
+  "beads_done": ["eino-obs-6on.10"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial concurrency/snapshot review requested reset linearization, immutable failure-injection setup semantics, complete operation counters, and redaction-safe snapshot errors.",
+    "Initial failure-injection/exporter review requested reset concurrency clarity, Flush export retry indexes, error_handler naming alignment, Shutdown drain counter behavior, and credential/error-handler counters.",
+    "Updated fake-recorder.md with synchronized reset epoch rules, setup-only failure injection, snapshot-safe errors, operation counters, export retry accounting, and post-shutdown behavior.",
+    "Focused re-reviews approved both blocker sets with no remaining blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "concurrency-snapshot-contract",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-9-define-fake-recorder-exporter-contract-2026-06-26/concurrency-snapshot-contract/05-re-review.md"
+    },
+    {
+      "reviewer": "failure-injection-exporter-contract",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-9-define-fake-recorder-exporter-contract-2026-06-26/failure-injection-exporter-contract/05-re-review.md"
+    }
+  ],
+  "completed_at": "2026-06-26T21:47:04Z",
+  "status": "complete"
+}
