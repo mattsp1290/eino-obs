@@ -1,0 +1,41 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 2,
+  "branch": "bead-swarm/iteration-2-create-package-layout-for-public-api-in",
+  "slug": "create-package-layout-for-public-api-in",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.2"],
+  "beads_done": ["eino-obs-6on.2"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "gofmt -w internal/model/doc.go internal/exporter/doc.go internal/redaction/doc.go recorder/doc.go exporter/fake/doc.go examples/doc.go tests/doc.go: pass",
+    "go list ./...: pass",
+    "go test ./...: pass",
+    "go list -f '{{.ImportPath}} {{join .Imports \",\"}}' ./...: pass; all scaffold packages have empty imports",
+    "rg forbidden concrete runtime/exporter imports in Go files: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [],
+  "reviews": [
+    {
+      "reviewer": "package-boundary-correctness",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-2-create-package-layout-for-public-api-in-2026-06-26/package-boundary-correctness/04-action-items.md"
+    },
+    {
+      "reviewer": "scaffold-maintainability",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-2-create-package-layout-for-public-api-in-2026-06-26/scaffold-maintainability/04-action-items.md"
+    }
+  ],
+  "status": "complete"
+}
