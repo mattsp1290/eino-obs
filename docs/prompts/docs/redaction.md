@@ -40,6 +40,23 @@ Normalized observations should use these conventions:
   `encrypted_reasoning_forbidden`;
 - record counts or booleans only when they do not reveal sensitive content.
 
+Until [schema.md](schema.md) defines final field names, tests should assert this
+minimal logical redaction metadata shape:
+
+```go
+type RedactionRecord struct {
+    FieldPath string
+    Reason string
+    OriginalBytes int
+    RetainedBytes int
+}
+```
+
+`FieldPath` is a stable dotted logical path such as `summary.text`,
+`summary.name`, `summary.fields.authorization`, or `metadata.api_key`.
+`OriginalBytes` and `RetainedBytes` are set when a value is truncated or omitted
+because of a byte limit; otherwise they may be zero.
+
 Do not emit placeholder values such as `[REDACTED]`, `<omitted>`, empty strings
 standing in for real content, or hashed raw payloads. Hashes of sensitive
 payloads are treated as derived sensitive data and are not part of the first
@@ -60,18 +77,35 @@ Summary capture rules:
 - `MaxSummaryBytes` limits each summary text value and each summary field value;
 - when `MaxSummaryBytes` is zero, the implementation must use the default limit
   of 1024 bytes;
-- summary names and field keys are also bounded to 128 bytes each;
+- negative `MaxSummaryBytes` values are invalid and must be rejected by
+  construction or validation before observations are recorded;
+- summary names and field keys are bounded to 128 bytes each;
 - summary field maps are limited to 32 entries;
+- over-limit summary names are omitted with reason `field_limit_exceeded`;
+- over-limit field keys are omitted with reason `field_limit_exceeded`;
+- when a summary field map has more than 32 entries, canonicalize keys, sort
+  them lexicographically by canonical key, retain the first 32 entries, and omit
+  the rest with reason `field_limit_exceeded`;
 - truncation is by UTF-8 byte length and must not split a rune;
 - truncated summaries include redaction metadata with original byte length,
   retained byte length, and reason `summary_truncated`;
 - disabled summaries are omitted and include reason `summary_disabled`;
 - summary maps are defensively copied before retention or export.
 
-Summary text and fields must still pass sensitive-key filtering. Field keys that
-case-insensitively match `authorization`, `api_key`, `apikey`, `token`,
-`password`, `secret`, `cookie`, `set-cookie`, `encrypted_reasoning`, or
-`reasoning_encrypted` are always omitted with redaction metadata.
+Summary names and fields must still pass sensitive-name filtering. Canonicalize
+summary names, field keys, and metadata keys before matching by trimming leading
+and trailing Unicode whitespace, lowercasing ASCII letters, and treating `-`,
+`_`, `.`, and space as equivalent separators.
+
+Canonical names that match `authorization`, `api_key`, `apikey`, `x_api_key`,
+`access_token`, `refresh_token`, `bearer_token`, `token`, `password`, `secret`,
+`client_secret`, `cookie`, `set_cookie`, `encrypted_reasoning`, or
+`reasoning_encrypted` are omitted with redaction metadata.
+
+If `Summary.Name` matches `encrypted_reasoning` or `reasoning_encrypted`, omit
+the entire summary, including `Summary.Text` and all fields, with reason
+`encrypted_reasoning_forbidden`. If `Summary.Name` matches another sensitive
+name, omit the entire summary with reason `default_omitted`.
 
 ## Encrypted Reasoning
 
@@ -87,6 +121,14 @@ implementation must omit that field and record reason
 The library must not attempt to decrypt, hash, truncate, summarize, classify, or
 count encrypted reasoning bytes.
 
+Encrypted reasoning detection is based on typed field identity and canonical
+name/key matches such as `encrypted_reasoning` and `reasoning_encrypted`. The
+library does not classify arbitrary string contents as encrypted reasoning. If a
+consumer places encrypted reasoning bytes in a generic string field with a safe
+name, the consumer has violated the API contract; implementation tests should
+cover all typed and name/key-identified encrypted reasoning paths under library
+control.
+
 ## Metadata And Errors
 
 `Metadata` maps are for stable, low-cardinality string attributes. They are not
@@ -98,7 +140,12 @@ Metadata rules:
 - keys are bounded to 128 bytes;
 - values are bounded by `MaxSummaryBytes` or the 1024-byte default;
 - maps are limited to 32 entries;
+- metadata is captured by default after bounds and sensitive-key filtering;
 - sensitive keys are omitted using the same key filter as summaries;
+- over-limit metadata keys are omitted with reason `field_limit_exceeded`;
+- when metadata has more than 32 entries, canonicalize keys, sort them
+  lexicographically by canonical key, retain the first 32 entries, and omit the
+  rest with reason `field_limit_exceeded`;
 - values are truncated without splitting UTF-8 runes and marked with
   `summary_truncated` until the schema contract defines a metadata-specific
   reason.
@@ -119,10 +166,20 @@ Implementation beads must include tests proving:
   exporter payloads, logs, summaries, metadata, or errors under library control;
 - disabled input and output summaries are omitted with `summary_disabled`;
 - enabled summaries are retained up to the configured byte limit;
+- negative `MaxSummaryBytes` values are rejected before observations are
+  recorded;
 - truncation preserves valid UTF-8 and records original and retained byte
   lengths;
+- exactly-at-limit values are retained without truncation;
+- tiny limits still preserve valid UTF-8;
 - summary and metadata maps are defensively copied;
 - sensitive summary and metadata keys are omitted;
+- sensitive `Summary.Name` values omit the whole summary, including safe-looking
+  fields under that summary;
+- sensitive-name canonicalization handles case, whitespace, hyphen, underscore,
+  dot, and space variants;
+- oversized maps are retained deterministically by canonical-key lexical order;
+- oversized names and keys are omitted with `field_limit_exceeded`;
 - zero-value `RedactionOptions` use the safe default limit and do not enable
   summary capture;
 - no-network fake recorder tests can inspect redaction metadata without live
