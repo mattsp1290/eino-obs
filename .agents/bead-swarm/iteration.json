@@ -1,0 +1,11 @@
+{
+  "iteration": 2,
+  "branch": "bead-swarm/iteration-2-create-package-layout-for-public-api-in",
+  "slug": "create-package-layout-for-public-api-in",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "selected_beads": ["eino-obs-6on.2"],
+  "beads_done_pending_close": [],
+  "beads_blocked": [],
+  "beads_partial": []
+}
