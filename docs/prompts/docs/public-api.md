@@ -153,10 +153,14 @@ event methods.
 
 Start methods return a handle with `End`, `Error`, and event methods relevant to
 that operation. `End` records successful or non-error terminal state. `Error`
-records failed terminal state. Callers should invoke exactly one terminal method
-per handle: either `End` or `Error`, not both. Cancellation is a terminal error
-state for active handles and can also be recorded as a lifecycle event when the
-consumer needs a run-level cancellation marker.
+records failed terminal state. Callers must invoke exactly one terminal method
+per handle: either `End` or `Error`, not both.
+
+All active-handle error structs include `Err error`,
+`Classification string`, and `Canceled bool`. Error structs include
+`Retryable bool` when retry is meaningful for that operation. Cancellation is a
+terminal error state for active handles and can also be recorded as a lifecycle
+event when the consumer needs a run-level cancellation marker.
 
 Handles must be safe for a single logical operation; concurrency guarantees for
 handles and recorders are finalized in [fake-recorder.md](fake-recorder.md).
@@ -172,14 +176,20 @@ shutdown, hooks, or recorder state without changing helper signatures.
 session := obs.StartSession(ctx, einoobs.SessionStart{
     Correlation: corr,
 })
-defer session.End(einoobs.SessionEnd{})
 
 run := obs.StartRun(ctx, einoobs.RunStart{
     Correlation: corr,
     Name: "answer-user-message",
     Metadata: einoobs.Metadata{"workflow": "chat"},
 })
-defer run.End(einoobs.RunEnd{})
+
+if err != nil {
+    run.Error(einoobs.RunError{Err: err, Classification: "runtime"})
+} else {
+    run.End(einoobs.RunEnd{})
+}
+
+session.End(einoobs.SessionEnd{})
 ```
 
 `SessionStart`, `SessionEnd`, `RunStart`, and `RunEnd` should use primitives:
@@ -189,9 +199,16 @@ string metadata, and the shared `Correlation` type.
 Run/session failures use handle-level terminal errors:
 
 ```go
+session.Error(einoobs.SessionError{
+    Err: err,
+    Classification: "canceled",
+    Canceled: true,
+})
+
 run.Error(einoobs.RunError{
     Err: err,
-    Classification: "runtime",
+    Classification: "canceled",
+    Canceled: true,
 })
 ```
 
@@ -224,6 +241,12 @@ call.Error(einoobs.ModelCallError{
     Err: err,
     Classification: "rate_limit",
     Retryable: true,
+})
+
+call.Error(einoobs.ModelCallError{
+    Err: context.Canceled,
+    Classification: "canceled",
+    Canceled: true,
 })
 ```
 
@@ -305,12 +328,21 @@ tool.Error(einoobs.ToolCallError{
     Retryable: false,
 })
 
+tool.Error(einoobs.ToolCallError{
+    Err: context.Canceled,
+    Classification: "canceled",
+    Canceled: true,
+})
+
 obs.ToolSettled(ctx, einoobs.ToolSettled{
     Correlation: corr,
     ToolCallID: "tool-call-1",
     Status: "failed",
 })
 ```
+
+Expected `ToolSettled.Status` values are `succeeded`, `failed`, and `canceled`
+unless the schema contract later narrows or expands them.
 
 ## Lifecycle Event Helpers
 
@@ -336,7 +368,9 @@ failure-surface contract permits them.
 
 `CancellationEvent` and `ErrorEvent` are lifecycle markers, not substitutes for
 active operation terminal methods. If a model call, stream, tool call, run, or
-session is active, the active handle should receive `Error` exactly once.
+session is active, the active handle must receive `Error` exactly once for the
+canceled or failed operation. A `CancellationEvent` may be emitted as additional
+context around the same cancellation.
 
 ## Acceptance Checks For Implementation Beads
 
