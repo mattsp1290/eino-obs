@@ -67,7 +67,11 @@ func ApplySpan(span model.Span, opts Options) (model.Span, error) {
 		out.Events[i] = redacted
 	}
 	if out.Error != nil {
-		out.Error = redactError(out.Error)
+		redactedError, record := redactError(out.Error)
+		out.Error = redactedError
+		if record != nil {
+			out.Redaction = append(out.Redaction, *record)
+		}
 	}
 	return out, nil
 }
@@ -84,7 +88,11 @@ func ApplyEvent(event model.Event, opts Options) (model.Event, error) {
 	out.Attributes = attrs
 	out.Redaction = append(out.Redaction, records...)
 	if out.Error != nil {
-		out.Error = redactError(out.Error)
+		redactedError, record := redactError(out.Error)
+		out.Error = redactedError
+		if record != nil {
+			out.Redaction = append(out.Redaction, *record)
+		}
 	}
 	return out, nil
 }
@@ -100,10 +108,6 @@ func ApplyAttributes(attrs model.Attributes, opts Options) (model.Attributes, []
 	var records []model.RedactionRecord
 	for _, key := range sortedAttrKeys(attrs) {
 		value := attrs[key]
-		if shouldOmitRawAttribute(key) {
-			records = append(records, omitRecord(key, keyOmissionReason(key), byteLen(value)))
-			continue
-		}
 		if side, ok := summarySideForAttribute(key); ok {
 			if !summaryEnabled(side, opts) {
 				records = append(records, model.RedactionRecord{FieldPath: key, Reason: ReasonSummaryDisabled})
@@ -121,8 +125,11 @@ func ApplyAttributes(attrs model.Attributes, opts Options) (model.Attributes, []
 			}
 			continue
 		}
-		if strings.HasPrefix(key, "metadata.") {
-			name := strings.TrimPrefix(key, "metadata.")
+		if shouldOmitRawAttribute(key) {
+			records = append(records, omitRecord(key, keyOmissionReason(key), byteLen(value)))
+			continue
+		}
+		if name, ok := metadataNameFromAttribute(key); ok {
 			if isSensitiveName(name) {
 				records = append(records, omitRecord(key, keyOmissionReason(name), byteLen(value)))
 				continue
@@ -157,11 +164,7 @@ func SummaryAttributes(attrKey string, fieldPath string, side SummarySide, summa
 	}
 	reason := summaryNameOmissionReason(summary.Name)
 	if reason != "" {
-		return nil, []model.RedactionRecord{{
-			FieldPath:     fieldPath,
-			Reason:        reason,
-			OriginalBytes: len([]byte(summary.Text)),
-		}}, nil
+		return nil, []model.RedactionRecord{{FieldPath: fieldPath, Reason: reason}}, nil
 	}
 	if len([]byte(summary.Name)) > MaxNameBytes {
 		return nil, []model.RedactionRecord{{FieldPath: fieldPath + ".name", Reason: ReasonFieldLimitExceeded, OriginalBytes: len([]byte(summary.Name))}}, nil
@@ -204,12 +207,9 @@ func stringMapAttributes(attrPrefix string, fieldPrefix string, values map[strin
 	}
 	attrs := model.Attributes{}
 	var records []model.RedactionRecord
-	for i, entry := range sortedStringMapEntries(values) {
+	retained := 0
+	for _, entry := range sortedStringMapEntries(values) {
 		fieldPath := fieldPrefix + entry.key
-		if i >= MaxMapEntries {
-			records = append(records, model.RedactionRecord{FieldPath: fieldPath, Reason: ReasonFieldLimitExceeded, OriginalBytes: len([]byte(entry.value))})
-			continue
-		}
 		if len([]byte(entry.key)) > MaxNameBytes {
 			records = append(records, model.RedactionRecord{FieldPath: fieldPath, Reason: ReasonFieldLimitExceeded, OriginalBytes: len([]byte(entry.key))})
 			continue
@@ -218,8 +218,13 @@ func stringMapAttributes(attrPrefix string, fieldPrefix string, values map[strin
 			records = append(records, model.RedactionRecord{FieldPath: fieldPath, Reason: keyOmissionReason(entry.key), OriginalBytes: len([]byte(entry.value))})
 			continue
 		}
+		if retained >= MaxMapEntries {
+			records = append(records, model.RedactionRecord{FieldPath: fieldPath, Reason: ReasonFieldLimitExceeded, OriginalBytes: len([]byte(entry.value))})
+			continue
+		}
 		value, record := boundedString(fieldPath, entry.value, maxSummaryBytes(opts), ReasonSummaryTruncated)
 		attrs[attrPrefix+entry.key] = value
+		retained++
 		if record != nil {
 			records = append(records, *record)
 		}
@@ -320,14 +325,27 @@ func summaryEnabled(side SummarySide, opts Options) bool {
 }
 
 func summarySideForAttribute(key string) (SummarySide, bool) {
-	switch key {
-	case "genai.request.summary", "tool.input.summary":
+	switch canonicalName(key) {
+	case "genai_request_summary", "tool_input_summary":
 		return InputSummary, true
-	case "genai.response.summary", "stream.chunk.summary", "tool.output.summary":
+	case "genai_response_summary", "stream_chunk_summary", "tool_output_summary":
 		return OutputSummary, true
 	default:
 		return "", false
 	}
+}
+
+func metadataNameFromAttribute(key string) (string, bool) {
+	trimmed := strings.TrimSpace(key)
+	if strings.HasPrefix(trimmed, "metadata.") {
+		return strings.TrimPrefix(trimmed, "metadata."), true
+	}
+	canonical := canonicalName(trimmed)
+	const prefix = "metadata_"
+	if strings.HasPrefix(canonical, prefix) {
+		return strings.TrimPrefix(canonical, prefix), true
+	}
+	return "", false
 }
 
 func summaryNameOmissionReason(name string) string {
@@ -436,13 +454,14 @@ func omitRecord(path string, reason string, originalBytes int) model.RedactionRe
 	return model.RedactionRecord{FieldPath: path, Reason: reason, OriginalBytes: originalBytes}
 }
 
-func redactError(err *model.ObservationError) *model.ObservationError {
+func redactError(err *model.ObservationError) (*model.ObservationError, *model.RedactionRecord) {
 	if err == nil {
-		return nil
+		return nil, nil
 	}
 	out := *err
 	if out.Message != "" && (isEncryptedReasoningName(out.Type) || isEncryptedReasoningName(out.Operation)) {
 		out.Message = ""
+		return &out, &model.RedactionRecord{FieldPath: "error.message", Reason: ReasonEncryptedReasoningForbidden}
 	}
-	return &out
+	return &out, nil
 }

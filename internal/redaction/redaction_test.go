@@ -1,6 +1,7 @@
 package redaction
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -68,6 +69,9 @@ func TestSensitiveSummaryNameOmitsWholeSummary(t *testing.T) {
 	if len(records) != 1 || records[0].Reason != ReasonEncryptedReasoningForbidden {
 		t.Fatalf("records = %#v, want encrypted_reasoning_forbidden", records)
 	}
+	if records[0].OriginalBytes != 0 || records[0].RetainedBytes != 0 {
+		t.Fatalf("encrypted reasoning record counted bytes: %#v", records[0])
+	}
 }
 
 func TestMetadataAttributesBoundsSensitiveKeysAndDeterministicOverflow(t *testing.T) {
@@ -100,6 +104,27 @@ func TestMetadataAttributesBoundsSensitiveKeysAndDeterministicOverflow(t *testin
 	}
 }
 
+func TestOversizedMapRetentionIgnoresOmittedEntries(t *testing.T) {
+	metadata := map[string]string{
+		"api-key": "secret",
+	}
+	for i := 0; i < MaxMapEntries; i++ {
+		metadata[fmt.Sprintf("safe-%02d", i)] = "safe"
+	}
+
+	attrs, records, err := MetadataAttributes(metadata, Options{})
+	if err != nil {
+		t.Fatalf("MetadataAttributes() error = %v", err)
+	}
+	if got := len(attrs); got != MaxMapEntries {
+		t.Fatalf("retained attrs = %d, want %d", got, MaxMapEntries)
+	}
+	if _, ok := attrs["metadata.safe-31"]; !ok {
+		t.Fatalf("last safe metadata entry was not retained")
+	}
+	assertRecord(t, records, "metadata.api-key", ReasonDefaultOmitted, len("secret"), 0)
+}
+
 func TestApplySpanOmitsRawFieldsAndRedactsEvents(t *testing.T) {
 	span := model.NewSpan(model.ObservationIdentity{ID: "span-1", TraceID: "trace-1"}, model.SpanKindModelCall, "model", time.Now())
 	span.SetAttr("genai.provider", "openai")
@@ -107,6 +132,7 @@ func TestApplySpanOmitsRawFieldsAndRedactsEvents(t *testing.T) {
 	span.SetAttr("prompt.text", "raw prompt")
 	span.SetAttr("genai.request.summary", "hello")
 	span.SetAttr("metadata.encrypted reasoning", "ciphertext")
+	span.SetAttr("tool.input.summary", "query")
 	event := model.NewEvent(model.ObservationIdentity{ID: "event-1", ParentID: "span-1", TraceID: "trace-1"}, model.EventStreamChunk, time.Now())
 	event.SetAttr("stream.chunk.index", int64(0))
 	event.SetAttr("stream.chunk.summary", "delta")
@@ -122,6 +148,9 @@ func TestApplySpanOmitsRawFieldsAndRedactsEvents(t *testing.T) {
 	if got := redacted.Attributes["genai.request.summary"]; got != "hell" {
 		t.Fatalf("summary = %q, want hell", got)
 	}
+	if got := redacted.Attributes["tool.input.summary"]; got != "quer" {
+		t.Fatalf("tool input summary = %q, want quer", got)
+	}
 	if _, ok := redacted.Attributes["metadata.encrypted reasoning"]; ok {
 		t.Fatalf("encrypted reasoning metadata was retained")
 	}
@@ -134,6 +163,53 @@ func TestApplySpanOmitsRawFieldsAndRedactsEvents(t *testing.T) {
 	assertRecord(t, redacted.Redaction, "prompt.text", ReasonDefaultOmitted, len("raw prompt"), 0)
 	assertRecord(t, redacted.Redaction, "metadata.encrypted reasoning", ReasonEncryptedReasoningForbidden, len("ciphertext"), 0)
 	assertRecord(t, redacted.Events[0].Redaction, "stream.chunk.summary", ReasonSummaryDisabled, 0, 0)
+}
+
+func TestApplyAttributesCanonicalMetadataAndRawPayloadOmission(t *testing.T) {
+	attrs := model.Attributes{
+		" Metadata.Api-Key ":           "secret",
+		"metadata_encrypted.reasoning": "ciphertext",
+		"model.input.messages":         "raw input",
+		"model-output-text":            "raw output",
+		"tool_input.payload":           "raw tool input",
+		"tool output payload":          "raw tool output",
+		"attachments":                  "raw attachment",
+		"reasoning.text":               "raw reasoning",
+		"provider.response.body":       "raw response",
+		"tool.output.summary":          "safe summary",
+	}
+
+	redacted, records, err := ApplyAttributes(attrs, Options{CaptureOutputSummary: true})
+	if err != nil {
+		t.Fatalf("ApplyAttributes() error = %v", err)
+	}
+	for key := range attrs {
+		if key == "tool.output.summary" {
+			continue
+		}
+		if _, ok := redacted[key]; ok {
+			t.Fatalf("sensitive attr %q was retained", key)
+		}
+	}
+	if got := redacted["tool.output.summary"]; got != "safe summary" {
+		t.Fatalf("tool output summary = %q, want safe summary", got)
+	}
+	assertRecord(t, records, " Metadata.Api-Key ", ReasonDefaultOmitted, len("secret"), 0)
+	assertRecord(t, records, "metadata_encrypted.reasoning", ReasonEncryptedReasoningForbidden, len("ciphertext"), 0)
+}
+
+func TestApplySpanRedactsEncryptedReasoningErrorMessageWithMetadata(t *testing.T) {
+	span := model.NewSpan(model.ObservationIdentity{ID: "span-1", TraceID: "trace-1"}, model.SpanKindRun, "run", time.Now())
+	span.Error = &model.ObservationError{Operation: "encrypted_reasoning", Type: "provider", Message: "ciphertext"}
+
+	redacted, err := ApplySpan(span, Options{})
+	if err != nil {
+		t.Fatalf("ApplySpan() error = %v", err)
+	}
+	if redacted.Error.Message != "" {
+		t.Fatalf("error message = %q, want omitted", redacted.Error.Message)
+	}
+	assertRecord(t, redacted.Redaction, "error.message", ReasonEncryptedReasoningForbidden, 0, 0)
 }
 
 func TestExactlyAtLimitRetainedAndTinyLimitValidUTF8(t *testing.T) {
