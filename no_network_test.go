@@ -186,8 +186,56 @@ func TestNoNetworkSnapshotPreservesNestedEventNameAndError(t *testing.T) {
 	}
 }
 
+func TestNoNetworkSnapshotExposesRedactionMetadataWithoutCredentials(t *testing.T) {
+	observer := New(Config{
+		Redaction: RedactionOptions{CaptureInputSummary: true, MaxSummaryBytes: 3},
+	})
+	err := observer.Exporter().Export(context.Background(), []Observation{{
+		ID:        "obs-1",
+		TraceID:   "trace-1",
+		Kind:      "model_call",
+		Name:      "model",
+		Status:    "ok",
+		Timestamp: time.Now(),
+		Attributes: map[string]any{
+			"genai.provider":        "openai",
+			"genai.model":           "gpt-example",
+			"prompt.text":           "raw prompt",
+			"genai.request.summary": "hello",
+			"metadata.api_key":      "secret",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("Export() error = %v", err)
+	}
+
+	obs := observer.Snapshot().Observations[0]
+	if _, ok := obs.Attributes["prompt.text"]; ok {
+		t.Fatalf("raw prompt leaked into no-network snapshot")
+	}
+	if _, ok := obs.Attributes["metadata.api_key"]; ok {
+		t.Fatalf("sensitive metadata leaked into no-network snapshot")
+	}
+	if got := obs.Attributes["genai.request.summary"]; got != "hel" {
+		t.Fatalf("summary = %q, want hel", got)
+	}
+	assertPublicRedactionRecord(t, obs.Redaction, "prompt.text", "default_omitted")
+	assertPublicRedactionRecord(t, obs.Redaction, "metadata.api_key", "default_omitted")
+	assertPublicRedactionRecord(t, obs.Redaction, "genai.request.summary", "summary_truncated")
+}
+
 type errSentinel struct{}
 
 func (errSentinel) Error() string {
 	return "sentinel"
+}
+
+func assertPublicRedactionRecord(t *testing.T, records []RedactionRecord, path string, reason string) {
+	t.Helper()
+	for _, record := range records {
+		if record.FieldPath == path && record.Reason == reason {
+			return
+		}
+	}
+	t.Fatalf("missing public redaction record path=%s reason=%s in %#v", path, reason, records)
 }

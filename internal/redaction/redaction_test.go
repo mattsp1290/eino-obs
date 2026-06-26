@@ -198,6 +198,90 @@ func TestApplyAttributesCanonicalMetadataAndRawPayloadOmission(t *testing.T) {
 	assertRecord(t, records, "metadata_encrypted.reasoning", ReasonEncryptedReasoningForbidden, len("ciphertext"), 0)
 }
 
+func TestApplyAttributesOmitsEveryUnsupportedRawPayloadCategory(t *testing.T) {
+	attrs := model.Attributes{
+		"prompt":                 "raw prompt",
+		"model.output.text":      "raw output",
+		"tool.input.payload":     "raw tool input",
+		"tool.output.payload":    "raw tool output",
+		"attachment.bytes":       "raw attachment",
+		"reasoning.text":         "raw reasoning",
+		"provider.request.body":  "raw request",
+		"provider.response.body": "raw response",
+		"metadata.safe":          "safe",
+	}
+
+	redacted, records, err := ApplyAttributes(attrs, Options{})
+	if err != nil {
+		t.Fatalf("ApplyAttributes() error = %v", err)
+	}
+	for key := range attrs {
+		if key == "metadata.safe" {
+			continue
+		}
+		if _, ok := redacted[key]; ok {
+			t.Fatalf("raw payload attr %q was retained", key)
+		}
+		assertRecord(t, records, key, ReasonDefaultOmitted, len(attrs[key].(string)), 0)
+	}
+	if redacted["metadata.safe"] != "safe" {
+		t.Fatalf("safe metadata = %q, want safe", redacted["metadata.safe"])
+	}
+}
+
+func TestSensitiveNameCanonicalizationVariants(t *testing.T) {
+	for _, name := range []string{
+		" Authorization ",
+		"api-key",
+		"api.key",
+		"api key",
+		"ACCESS_TOKEN",
+		"client.secret",
+		"set cookie",
+		"encrypted-reasoning",
+		"reasoning encrypted",
+	} {
+		t.Run(name, func(t *testing.T) {
+			attrs, records, err := MetadataAttributes(map[string]string{name: "secret"}, Options{})
+			if err != nil {
+				t.Fatalf("MetadataAttributes() error = %v", err)
+			}
+			if len(attrs) != 0 {
+				t.Fatalf("attrs = %#v, want omitted", attrs)
+			}
+			reason := ReasonDefaultOmitted
+			if strings.Contains(strings.ToLower(name), "reasoning") {
+				reason = ReasonEncryptedReasoningForbidden
+			}
+			assertRecord(t, records, "metadata."+strings.TrimSpace(name), reason, len("secret"), 0)
+		})
+	}
+}
+
+func TestOversizedSummaryAndMetadataNamesAreOmitted(t *testing.T) {
+	oversizedName := strings.Repeat("a", MaxNameBytes+1)
+	attrs, records, err := SummaryAttributes("genai.request.summary", "summary", InputSummary, Summary{
+		Name: oversizedName,
+		Text: "safe",
+	}, Options{CaptureInputSummary: true})
+	if err != nil {
+		t.Fatalf("SummaryAttributes() error = %v", err)
+	}
+	if len(attrs) != 0 {
+		t.Fatalf("oversized summary attrs = %#v, want omitted", attrs)
+	}
+	assertRecord(t, records, "summary.name", ReasonFieldLimitExceeded, len(oversizedName), 0)
+
+	attrs, records, err = MetadataAttributes(map[string]string{oversizedName: "safe"}, Options{})
+	if err != nil {
+		t.Fatalf("MetadataAttributes() error = %v", err)
+	}
+	if len(attrs) != 0 {
+		t.Fatalf("oversized metadata attrs = %#v, want omitted", attrs)
+	}
+	assertRecord(t, records, "metadata."+oversizedName, ReasonFieldLimitExceeded, len(oversizedName), 0)
+}
+
 func TestApplySpanRedactsEncryptedReasoningErrorMessageWithMetadata(t *testing.T) {
 	span := model.NewSpan(model.ObservationIdentity{ID: "span-1", TraceID: "trace-1"}, model.SpanKindRun, "run", time.Now())
 	span.Error = &model.ObservationError{Operation: "encrypted_reasoning", Type: "provider", Message: "ciphertext"}
