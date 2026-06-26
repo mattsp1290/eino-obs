@@ -1,0 +1,11 @@
+{
+  "iteration": 12,
+  "branch": "bead-swarm/iteration-12-implement-correlation-context-helpers",
+  "slug": "implement-correlation-context-helpers",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "selected_beads": ["eino-obs-6on.17"],
+  "beads_done_pending_close": [],
+  "beads_blocked": [],
+  "beads_partial": []
+}
