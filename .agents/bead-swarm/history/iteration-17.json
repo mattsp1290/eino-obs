@@ -1,0 +1,44 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 17,
+  "branch": "bead-swarm/iteration-17-implement-public-constructors",
+  "slug": "implement-public-constructors",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.24"],
+  "beads_done": ["eino-obs-6on.24"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial public-constructor review requested the frozen one-result New(config) constructor shape.",
+    "Initial config-semantics review requested ObservationError-compatible config, flush, and shutdown failures with ErrorHandler notification.",
+    "First config-semantics re-review requested retaining failed shutdown state for subsequent Shutdown and post-failed-shutdown Flush.",
+    "Updated Observer to use one-result New, normalize lifecycle/config errors, call ErrorHandler, enforce clean shutdown idempotence, and retain failed shutdown errors.",
+    "Focused re-reviews approved both blocker sets with no remaining blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "public-constructor-api",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-17-implement-public-constructors-2026-06-26/public-constructor-api/05-re-review.md"
+    },
+    {
+      "reviewer": "public-config-semantics",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-17-implement-public-constructors-2026-06-26/public-config-semantics/06-re-review.md"
+    }
+  ],
+  "completed_at": "2026-06-26T23:23:05Z",
+  "status": "complete"
+}
