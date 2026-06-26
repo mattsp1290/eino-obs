@@ -1,24 +1,277 @@
 # Public API Contract
 
-Use this file for `eino-obs-6on.7`.
+This file is the contract for `eino-obs-6on.7`. Implementation beads should
+treat the names and call shapes here as the intended public surface unless a
+later contract-freeze bead revises them.
 
-## Pending Content
+## Package Boundary
 
-- Exported types for configuration, correlation context, token usage, streams,
-  tools, redaction options, exporter interfaces, and recorder output.
-- Session and run lifecycle helpers.
-- Provider/model call helpers.
-- Streaming turn helpers and lifecycle style.
-- Tool call helpers.
-- Interrupt, retry, compaction, and error event helpers.
-- Context propagation rules.
-- Whether spans are ended manually, closure/callback-based, or both.
-- Failure handling call sites and how they relate to
-  [failure-surface.md](failure-surface.md).
+The root package is `github.com/mattsp1290/eino-obs` with package name
+`einoobs`.
 
-## Constraints
+Stable public API belongs in the root package unless a later design explicitly
+adds an adapter package. The public API must not import concrete `eino-agent`,
+`eino-agui`, provider SDK, AG-UI runtime, Datadog transport, or OpenTelemetry
+transport types.
 
-- Use adapter-friendly Go primitives and structs.
-- Do not import concrete `eino-agent`, `eino-agui`, provider, or AG-UI runtime
-  types unless a later adapter package is explicitly designed.
-- Keep transport details out of normal consumer call sites.
+Transport, normalized model, and redaction internals stay behind `internal/`.
+No-network testing helpers live in `recorder` and `exporter/fake` after their
+contracts are defined.
+
+## Exported Types
+
+The first public implementation should define these root-package types:
+
+```go
+type Config struct {
+    Service string
+    Env string
+    Version string
+    Redaction RedactionOptions
+    Exporter Exporter
+    ErrorHandler ErrorHandler
+}
+
+type Correlation struct {
+    SessionID string
+    RunID string
+    AgentID string
+    AssistantMessageID string
+    ThreadID string
+    AGUIRunID string
+}
+
+type ProviderModel struct {
+    Provider string
+    Model string
+}
+
+type TokenUsage struct {
+    InputTokens int64
+    OutputTokens int64
+    TotalTokens int64
+    ReasoningTokens int64
+    CachedInputTokens int64
+}
+
+type Summary struct {
+    Name string
+    Text string
+    Fields map[string]string
+}
+
+type RedactionOptions struct {
+    CaptureInputSummary bool
+    CaptureOutputSummary bool
+    MaxSummaryBytes int
+}
+```
+
+Zero values must be usable. Empty IDs are omitted from normalized output rather
+than replaced with placeholder strings. `Summary` carries caller-provided
+bounded summaries only; raw prompt, tool payload, attachment, and reasoning
+capture remains out of scope unless [redaction.md](redaction.md) changes that
+contract.
+
+## Exporter And Recorder Interfaces
+
+The public package should expose a small exporter interface that avoids
+transport-specific types:
+
+```go
+type Exporter interface {
+    Export(ctx context.Context, batch []Observation) error
+    Flush(ctx context.Context) error
+    Shutdown(ctx context.Context) error
+}
+
+type Observation struct {
+    // Opaque public view of a normalized observation.
+}
+
+type ErrorHandler func(context.Context, ObservationError)
+
+type ObservationError struct {
+    Operation string
+    Err error
+}
+```
+
+The final `Observation` shape depends on [schema.md](schema.md). Until that
+schema is frozen, helpers may keep normalized details internal and use the
+interface shape above as the compatibility target.
+
+## Construction
+
+Consumers should be able to construct an observer without network credentials:
+
+```go
+obs := einoobs.New(einoobs.Config{
+    Service: "eino-agent",
+    Env: "dev",
+})
+defer obs.Shutdown(ctx)
+```
+
+`New` must choose safe no-network defaults when `Config.Exporter` is nil. Real
+Datadog-compatible exporters are configured through an exporter constructor
+after [export-strategy.md](export-strategy.md) and
+[exporter-config.md](exporter-config.md) are decided.
+
+## Context Propagation
+
+Correlation is propagated through `context.Context` with root-package helpers:
+
+```go
+ctx = einoobs.ContextWithCorrelation(ctx, einoobs.Correlation{
+    SessionID: "session-123",
+    RunID: "run-456",
+    AgentID: "agent-main",
+})
+
+corr, ok := einoobs.CorrelationFromContext(ctx)
+```
+
+Helpers that start observations accept `context.Context`; they merge explicit
+options with context correlation. Explicit option fields take precedence over
+context fields for that observation only.
+
+## Lifecycle Style
+
+Long-lived operations use start/end handles. Instantaneous lifecycle points use
+event methods.
+
+Start methods return a handle with `End`, `Error`, and event methods relevant to
+that operation. Handles must be safe for a single logical operation; concurrency
+guarantees for handles and recorders are finalized in
+[fake-recorder.md](fake-recorder.md).
+
+Instrumentation helpers must not panic on exporter failure. Exact error
+reporting behavior is finalized in [failure-surface.md](failure-surface.md), but
+call sites should be designed so failures can be surfaced through flush,
+shutdown, hooks, or recorder state without changing helper signatures.
+
+## Session And Run Helpers
+
+```go
+session := obs.StartSession(ctx, einoobs.SessionStart{
+    Correlation: corr,
+})
+defer session.End(einoobs.SessionEnd{})
+
+run := obs.StartRun(ctx, einoobs.RunStart{
+    Correlation: corr,
+    Name: "answer-user-message",
+})
+defer run.End(einoobs.RunEnd{})
+```
+
+`SessionStart`, `SessionEnd`, `RunStart`, and `RunEnd` should use primitives:
+strings, booleans, numeric counters, `time.Time`, `time.Duration`, maps of
+string metadata, and the shared `Correlation` type.
+
+## Provider And Model Call Helpers
+
+```go
+call := obs.StartModelCall(ctx, einoobs.ModelCallStart{
+    Correlation: corr,
+    ProviderModel: einoobs.ProviderModel{
+        Provider: "openai",
+        Model: "gpt-example",
+    },
+    InputSummary: einoobs.Summary{Name: "user_request", Text: "short caller summary"},
+})
+
+call.End(einoobs.ModelCallEnd{
+    Usage: einoobs.TokenUsage{InputTokens: 100, OutputTokens: 40, TotalTokens: 140},
+    OutputSummary: einoobs.Summary{Name: "assistant_response", Text: "short caller summary"},
+})
+```
+
+Model helpers should support provider, model, retry attempt, token usage,
+latency, cancellation, and error fields without depending on provider SDK
+types.
+
+## Streaming Helpers
+
+Streaming model turns use a start handle with chunk and terminal methods:
+
+```go
+stream := obs.StartStream(ctx, einoobs.StreamStart{
+    Correlation: corr,
+    ProviderModel: model,
+})
+
+stream.Chunk(einoobs.StreamChunk{
+    Index: 0,
+    OutputSummary: einoobs.Summary{Name: "delta", Text: "caller summary"},
+})
+
+stream.End(einoobs.StreamEnd{
+    Usage: usage,
+})
+```
+
+The stream contract must allow first-token latency, total latency, partial
+failure, cancellation, and final token usage to be represented after
+[schema.md](schema.md) is finalized.
+
+## Tool Helpers
+
+Tool observations are split by lifecycle point and use adapter-friendly IDs:
+
+```go
+obs.ToolRegistered(ctx, einoobs.ToolRegistered{
+    Correlation: corr,
+    ToolName: "search",
+})
+
+tool := obs.StartToolCall(ctx, einoobs.ToolCallStart{
+    Correlation: corr,
+    ToolCallID: "tool-call-1",
+    ToolName: "search",
+    InputSummary: einoobs.Summary{Name: "query", Fields: map[string]string{"kind": "web"}},
+})
+
+tool.End(einoobs.ToolCallEnd{
+    OutputSummary: einoobs.Summary{Name: "result", Text: "caller summary"},
+})
+```
+
+The same primitive contract must support server-side tools and AG-UI
+client-proposed tools. AG-UI-specific correlation is represented through
+`Correlation.ThreadID`, `Correlation.AGUIRunID`, `ToolCallID`, and ordinary
+metadata fields, not AG-UI runtime types.
+
+## Lifecycle Event Helpers
+
+Instant events use methods on `Observer` or an active run/session handle:
+
+```go
+obs.Retry(ctx, einoobs.RetryEvent{
+    Correlation: corr,
+    Attempt: 2,
+    Reason: "rate_limit",
+})
+
+obs.Compaction(ctx, einoobs.CompactionEvent{Correlation: corr})
+obs.Interrupt(ctx, einoobs.InterruptEvent{Correlation: corr, Reason: "user"})
+obs.Resume(ctx, einoobs.ResumeEvent{Correlation: corr})
+obs.Cancellation(ctx, einoobs.CancellationEvent{Correlation: corr})
+obs.Error(ctx, einoobs.ErrorEvent{Correlation: corr, Err: err})
+```
+
+Event structs must avoid raw payloads and provider-specific error types. Error
+classification should use stable strings plus wrapped `error` values where the
+failure-surface contract permits them.
+
+## Acceptance Checks For Implementation Beads
+
+- Public helper inputs use primitives, standard library types, and local
+  `einoobs` structs only.
+- No public package imports concrete `eino-agent`, `eino-agui`, provider,
+  AG-UI, Datadog transport, or OpenTelemetry transport types.
+- Examples show intended session, model, stream, tool, lifecycle, and context
+  propagation call shapes.
+- Raw sensitive payload capture is not part of the public call shapes.
+- Failure behavior remains compatible with [failure-surface.md](failure-surface.md).
