@@ -51,6 +51,9 @@ func (e *NoNetworkExporter) Export(ctx context.Context, batch []Observation) err
 	if e.shutdown {
 		return ObservationError{Operation: "export", Classification: "exporter_closed", Retryable: false, Dropped: true}
 	}
+	if len(redacted) > 0 {
+		e.dirty = true
+	}
 	e.observations = append(e.observations, redacted...)
 	return nil
 }
@@ -105,7 +108,7 @@ func (e *NoNetworkExporter) Reset() {
 
 func WithNoNetwork() Option {
 	return func(config *Config) error {
-		config.Exporter = NewNoNetworkExporter(config.Redaction)
+		config.Exporter = noNetworkMarker{}
 		return nil
 	}
 }
@@ -155,14 +158,27 @@ func publicObservationToSpan(observation Observation) (model.Span, error) {
 }
 
 func publicObservationToEvent(observation Observation) model.Event {
+	name := observation.Name
+	if name == "" {
+		name = observation.Kind
+	}
 	event := model.NewEvent(
 		model.ObservationIdentity{ID: observation.ID, ParentID: observation.ParentID, TraceID: observation.TraceID},
-		model.EventName(observation.Kind),
+		model.EventName(name),
 		observation.Timestamp,
 	)
 	event.Status = model.Status(observation.Status)
 	event.Attributes = model.Attributes(cloneObservationAttributes(observation.Attributes))
 	event.Redaction = publicRedactionToModel(observation.Redaction)
+	if observation.Error != nil {
+		event.Error = &model.ObservationError{
+			Operation:      observation.Error.Operation,
+			Classification: observation.Error.Classification,
+			Message:        observation.Error.Error(),
+			Retryable:      boolPtr(observation.Error.Retryable),
+			Dropped:        boolPtr(observation.Error.Dropped),
+		}
+	}
 	return event
 }
 
@@ -276,4 +292,18 @@ func cloneObservationSlice(observations []Observation) []Observation {
 
 func boolPtr(value bool) *bool {
 	return &value
+}
+
+type noNetworkMarker struct{}
+
+func (noNetworkMarker) Export(context.Context, []Observation) error {
+	return nil
+}
+
+func (noNetworkMarker) Flush(context.Context) error {
+	return nil
+}
+
+func (noNetworkMarker) Shutdown(context.Context) error {
+	return nil
 }

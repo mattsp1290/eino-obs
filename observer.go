@@ -34,6 +34,11 @@ func New(config Config, opts ...Option) *Observer {
 	if configErr == nil {
 		configErr = cfg.Validate()
 	}
+	if configErr == nil {
+		if _, ok := cfg.Exporter.(noNetworkMarker); ok {
+			cfg.Exporter = nil
+		}
+	}
 	if configErr == nil && cfg.Exporter == nil {
 		cfg.Exporter = NewNoNetworkExporter(cfg.Redaction)
 	}
