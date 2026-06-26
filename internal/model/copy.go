@@ -29,9 +29,38 @@ func CloneAttributes(attrs Attributes) Attributes {
 	}
 	out := make(Attributes, len(attrs))
 	for key, value := range attrs {
-		out[key] = value
+		out[key] = cloneAttributeValue(value)
 	}
 	return out
+}
+
+func cloneAttributeValue(value any) any {
+	switch v := value.(type) {
+	case []byte:
+		out := make([]byte, len(v))
+		copy(out, v)
+		return out
+	case []string:
+		out := make([]string, len(v))
+		copy(out, v)
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = cloneAttributeValue(item)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for key, item := range v {
+			out[key] = cloneAttributeValue(item)
+		}
+		return out
+	case Attributes:
+		return CloneAttributes(v)
+	default:
+		return value
+	}
 }
 
 func cloneEvents(events []Event) []Event {

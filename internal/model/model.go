@@ -68,9 +68,9 @@ type ObservationError struct {
 	Type           string
 	Message        string
 	Classification string
-	Retryable      bool
-	Canceled       bool
-	Dropped        bool
+	Retryable      *bool
+	Canceled       *bool
+	Dropped        *bool
 }
 
 type Span struct {
@@ -161,6 +161,7 @@ func (e *Event) SetAttr(key string, value any) {
 func (s Span) Validate() error {
 	var errs []error
 	errs = append(errs, validateIdentity(s.Identity)...)
+	errs = append(errs, validateAttributes(s.Attributes)...)
 	if !validSpanKind(s.Kind) {
 		errs = append(errs, fmt.Errorf("invalid span kind %q", s.Kind))
 	}
@@ -172,9 +173,14 @@ func (s Span) Validate() error {
 	}
 	if s.StartTime.IsZero() {
 		errs = append(errs, errors.New("span start time is required"))
+	} else if s.StartTime.Location() != time.UTC {
+		errs = append(errs, errors.New("span start time must be UTC"))
 	}
 	if !s.EndTime.IsZero() && s.EndTime.Before(s.StartTime) {
 		errs = append(errs, errors.New("span end time is before start time"))
+	}
+	if !s.EndTime.IsZero() && s.EndTime.Location() != time.UTC {
+		errs = append(errs, errors.New("span end time must be UTC"))
 	}
 	if s.Status == StatusError || s.Status == StatusCanceled {
 		if s.Error == nil {
@@ -183,8 +189,10 @@ func (s Span) Validate() error {
 	}
 	if s.Error != nil {
 		errs = append(errs, s.Error.validate("span")...)
+		errs = append(errs, validateTerminalErrorFlags("span", s.Status, *s.Error)...)
 	}
 	errs = append(errs, validateSpanRequiredAttributes(s)...)
+	errs = append(errs, validateToolSpanStatus(s)...)
 	for i, event := range s.Events {
 		if err := event.Validate(); err != nil {
 			errs = append(errs, fmt.Errorf("event %d: %w", i, err))
@@ -196,22 +204,29 @@ func (s Span) Validate() error {
 func (e Event) Validate() error {
 	var errs []error
 	errs = append(errs, validateIdentity(e.Identity)...)
+	errs = append(errs, validateAttributes(e.Attributes)...)
 	if !validEventName(e.Name) {
 		errs = append(errs, fmt.Errorf("invalid event name %q", e.Name))
 	}
 	if e.Timestamp.IsZero() {
 		errs = append(errs, errors.New("event timestamp is required"))
+	} else if e.Timestamp.Location() != time.UTC {
+		errs = append(errs, errors.New("event timestamp must be UTC"))
 	}
 	if e.Status != "" && !validStatus(e.Status) {
 		errs = append(errs, fmt.Errorf("invalid event status %q", e.Status))
 	}
 	if e.Category == "" {
 		errs = append(errs, errors.New("event category is required"))
+	} else if want := eventCategory(e.Name); e.Category != want {
+		errs = append(errs, fmt.Errorf("event category %q does not match event name %q", e.Category, e.Name))
 	}
 	if e.Error != nil {
 		errs = append(errs, e.Error.validate("event")...)
 	}
 	errs = append(errs, validateEventRequiredAttributes(e)...)
+	errs = append(errs, validateToolEventStatus(e)...)
+	errs = append(errs, validateEventErrorFields(e)...)
 	return errors.Join(errs...)
 }
 
@@ -223,8 +238,24 @@ func (e ObservationError) validate(scope string) []error {
 	if e.Classification == "" {
 		errs = append(errs, fmt.Errorf("%s error classification is required", scope))
 	}
-	if e.Canceled && e.Retryable {
+	if e.Retryable == nil {
+		errs = append(errs, fmt.Errorf("%s error retryable flag is required", scope))
+	}
+	if e.Canceled != nil && e.Retryable != nil && *e.Canceled && *e.Retryable {
 		errs = append(errs, fmt.Errorf("%s canceled error cannot be retryable", scope))
+	}
+	return errs
+}
+
+func validateTerminalErrorFlags(scope string, status Status, err ObservationError) []error {
+	var errs []error
+	if status == StatusCanceled {
+		if err.Canceled == nil || !*err.Canceled {
+			errs = append(errs, fmt.Errorf("%s canceled status requires error.canceled=true", scope))
+		}
+		if err.Retryable == nil || *err.Retryable {
+			errs = append(errs, fmt.Errorf("%s canceled status requires error.retryable=false", scope))
+		}
 	}
 	return errs
 }
@@ -240,12 +271,44 @@ func validateIdentity(id ObservationIdentity) []error {
 	return errs
 }
 
+func validateAttributes(attrs Attributes) []error {
+	var errs []error
+	for key, value := range attrs {
+		if value == nil {
+			errs = append(errs, fmt.Errorf("attribute %q has nil value", key))
+			continue
+		}
+		switch value.(type) {
+		case string, bool, int, int64, float64:
+		default:
+			errs = append(errs, fmt.Errorf("attribute %q has unsupported value type %T", key, value))
+		}
+	}
+	return errs
+}
+
 func validateSpanRequiredAttributes(span Span) []error {
 	switch span.Kind {
 	case SpanKindModelCall, SpanKindStream:
-		return missingAttrs(span.Attributes, "genai.provider", "genai.model")
+		return append(
+			requireStringAttrs(span.Attributes, "genai.provider", "genai.model"),
+			validateOptionalInt64Attrs(span.Attributes,
+				"genai.usage.input_tokens",
+				"genai.usage.output_tokens",
+				"genai.usage.total_tokens",
+				"genai.usage.reasoning_tokens",
+				"genai.usage.cached_input_tokens",
+				"genai.latency.first_token_ms",
+				"genai.latency.total_ms",
+				"genai.retry.attempt",
+			)...,
+		)
 	case SpanKindToolCall:
-		return missingAttrs(span.Attributes, "tool.name", "tool.call_id", "tool.kind", "tool.status")
+		errs := requireStringAttrs(span.Attributes, "tool.name", "tool.call_id", "tool.kind", "tool.status")
+		if !span.EndTime.IsZero() {
+			errs = append(errs, requireInt64Attrs(span.Attributes, "tool.latency.ms")...)
+		}
+		return errs
 	default:
 		return nil
 	}
@@ -254,34 +317,126 @@ func validateSpanRequiredAttributes(span Span) []error {
 func validateEventRequiredAttributes(event Event) []error {
 	switch event.Name {
 	case EventStreamChunk:
-		return missingAttrs(event.Attributes, "stream.chunk.index")
+		return requireInt64Attrs(event.Attributes, "stream.chunk.index")
 	case EventStreamFirstTok:
-		return missingAttrs(event.Attributes, "genai.latency.first_token_ms")
+		return requireInt64Attrs(event.Attributes, "genai.latency.first_token_ms")
 	case EventToolRegistered:
-		return missingAttrs(event.Attributes, "tool.name", "tool.kind", "tool.status")
+		return requireStringAttrs(event.Attributes, "tool.name", "tool.kind", "tool.status")
 	case EventToolMaterialize:
-		return missingAttrs(event.Attributes, "tool.name", "tool.call_id", "tool.kind", "tool.status")
+		return requireStringAttrs(event.Attributes, "tool.name", "tool.call_id", "tool.kind", "tool.status")
 	case EventToolSettled:
-		return missingAttrs(event.Attributes, "tool.name", "tool.call_id", "tool.kind", "tool.status")
+		return requireStringAttrs(event.Attributes, "tool.name", "tool.call_id", "tool.kind", "tool.status")
 	case EventRetry:
-		return missingAttrs(event.Attributes, "retry.attempt", "retry.reason")
+		return append(requireInt64Attrs(event.Attributes, "retry.attempt"), requireStringAttrs(event.Attributes, "retry.reason")...)
 	case EventCompaction:
-		return missingAttrs(event.Attributes, "compaction.reason")
+		return requireStringAttrs(event.Attributes, "compaction.reason")
 	case EventInterrupt:
-		return missingAttrs(event.Attributes, "interrupt.reason")
+		return requireStringAttrs(event.Attributes, "interrupt.reason")
 	case EventResume:
-		return missingAttrs(event.Attributes, "resume.reason")
+		return requireStringAttrs(event.Attributes, "resume.reason")
 	case EventCancellation:
-		return missingAttrs(event.Attributes, "cancellation.reason", "error.canceled")
+		return requireStringAttrs(event.Attributes, "cancellation.reason")
 	case EventError:
-		return missingAttrs(event.Attributes, "error.operation", "error.classification", "error.retryable")
+		return nil
 	case EventObservationErr:
-		return missingAttrs(event.Attributes, "error.operation", "error.classification", "error.retryable", "error.dropped")
+		return nil
 	case EventRedaction:
 		if len(event.Redaction) == 0 {
 			return []error{errors.New("redaction.applied event requires redaction records")}
 		}
 		return nil
+	default:
+		return nil
+	}
+}
+
+func validateToolSpanStatus(span Span) []error {
+	if span.Kind != SpanKindToolCall {
+		return nil
+	}
+	status, _ := span.Attributes["tool.status"].(string)
+	if status == "" {
+		return nil
+	}
+	if span.EndTime.IsZero() {
+		if status != "started" {
+			return []error{fmt.Errorf("active tool_call span requires tool.status=started, got %q", status)}
+		}
+		return nil
+	}
+	switch status {
+	case "succeeded":
+		return nil
+	case "failed":
+		return validateToolTerminalError(span.Error, false)
+	case "canceled":
+		return validateToolTerminalError(span.Error, true)
+	default:
+		return []error{fmt.Errorf("terminal tool_call span has invalid tool.status %q", status)}
+	}
+}
+
+func validateToolEventStatus(event Event) []error {
+	status, _ := event.Attributes["tool.status"].(string)
+	switch event.Name {
+	case EventToolRegistered:
+		if status != "" && status != "registered" {
+			return []error{fmt.Errorf("tool.registered requires tool.status=registered, got %q", status)}
+		}
+	case EventToolMaterialize:
+		if status != "" && status != "materialized" {
+			return []error{fmt.Errorf("tool.materialized requires tool.status=materialized, got %q", status)}
+		}
+	case EventToolSettled:
+		switch status {
+		case "succeeded":
+			return nil
+		case "failed":
+			return validateToolTerminalError(event.Error, false)
+		case "canceled":
+			return validateToolTerminalError(event.Error, true)
+		case "":
+			return nil
+		default:
+			return []error{fmt.Errorf("tool.settled has invalid tool.status %q", status)}
+		}
+	}
+	return nil
+}
+
+func validateToolTerminalError(err *ObservationError, canceled bool) []error {
+	if err == nil {
+		return []error{errors.New("terminal tool failure/cancellation requires error fields")}
+	}
+	var errs []error
+	if err.Operation != "tool_call" {
+		errs = append(errs, fmt.Errorf("terminal tool error operation = %q, want tool_call", err.Operation))
+	}
+	errs = append(errs, err.validate("tool")...)
+	if canceled {
+		errs = append(errs, validateTerminalErrorFlags("tool", StatusCanceled, *err)...)
+	}
+	return errs
+}
+
+func validateEventErrorFields(event Event) []error {
+	switch event.Name {
+	case EventError, EventObservationErr:
+		if event.Error == nil {
+			return []error{fmt.Errorf("%s event requires error fields", event.Name)}
+		}
+		var errs []error
+		if event.Name == EventObservationErr {
+			if event.Error.Dropped == nil {
+				errs = append(errs, errors.New("observation.error event requires error.dropped"))
+			}
+		}
+		return errs
+	case EventCancellation:
+		if event.Error == nil {
+			return []error{errors.New("cancellation event requires error fields")}
+		}
+		return validateTerminalErrorFlags("cancellation event", StatusCanceled, *event.Error)
 	default:
 		return nil
 	}
@@ -295,6 +450,51 @@ func missingAttrs(attrs Attributes, required ...string) []error {
 		}
 	}
 	return errs
+}
+
+func requireStringAttrs(attrs Attributes, required ...string) []error {
+	return requireTypedAttrs(attrs, "string", func(value any) bool {
+		_, ok := value.(string)
+		return ok
+	}, required...)
+}
+
+func requireInt64Attrs(attrs Attributes, required ...string) []error {
+	return requireTypedAttrs(attrs, "int64", isIntValue, required...)
+}
+
+func validateOptionalInt64Attrs(attrs Attributes, keys ...string) []error {
+	var errs []error
+	for _, key := range keys {
+		if value, ok := attrs[key]; ok && !isIntValue(value) {
+			errs = append(errs, fmt.Errorf("attribute %q must be int64-compatible, got %T", key, value))
+		}
+	}
+	return errs
+}
+
+func requireTypedAttrs(attrs Attributes, typeName string, valid func(any) bool, required ...string) []error {
+	var errs []error
+	errs = append(errs, missingAttrs(attrs, required...)...)
+	for _, key := range required {
+		value, ok := attrs[key]
+		if !ok {
+			continue
+		}
+		if !valid(value) {
+			errs = append(errs, fmt.Errorf("required attribute %q must be %s, got %T", key, typeName, value))
+		}
+	}
+	return errs
+}
+
+func isIntValue(value any) bool {
+	switch value.(type) {
+	case int, int64:
+		return true
+	default:
+		return false
+	}
 }
 
 func validSpanKind(kind SpanKind) bool {
