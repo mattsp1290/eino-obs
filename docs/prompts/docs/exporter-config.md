@@ -38,6 +38,8 @@ type Config struct {
     MaxRetries int
     RetryBaseDelay time.Duration
     RetryMaxDelay time.Duration
+    RetryJitterSeed int64
+    Sleeper Sleeper
     ValidateCredentials bool
     DisableCompression bool
     AllowMissingAPIKeyForTesting bool
@@ -51,6 +53,10 @@ compatible intake services. Normal application call sites should set `APIKey`,
 
 The constructor must return an error for invalid static configuration before
 the exporter accepts observations.
+
+`Sleeper` may be a small interface such as `Sleep(context.Context,
+time.Duration) error`. It is a testability hook, not a public instrumentation
+call-site requirement.
 
 ## Environment Variables
 
@@ -72,6 +78,8 @@ to environment variables, then defaults.
 | `MaxRetries` | `EINO_OBS_EXPORT_MAX_RETRIES` | Optional | 3 |
 | `RetryBaseDelay` | `EINO_OBS_EXPORT_RETRY_BASE_DELAY` | Optional | 200 milliseconds |
 | `RetryMaxDelay` | `EINO_OBS_EXPORT_RETRY_MAX_DELAY` | Optional | 5 seconds |
+| `RetryJitterSeed` | none | Optional | implementation-selected nondeterministic seed |
+| `Sleeper` | none | Optional | real time sleeper |
 | `ValidateCredentials` | `EINO_OBS_VALIDATE_CREDENTIALS` | Optional | false in tests, true only when requested |
 | `DisableCompression` | `EINO_OBS_EXPORT_DISABLE_COMPRESSION` | Optional | false |
 | `AllowMissingAPIKeyForTesting` | none | Optional | false |
@@ -142,6 +150,20 @@ owns only transport-level batching, encoding, retries, and errors. It must not
 add raw prompt/tool/provider payloads outside the normalized post-redaction
 model.
 
+Exporter-level identity maps into the Datadog payload this way:
+
+- `MLApp` maps to Datadog `ml_app`, falling back to `Service`, then `eino-obs`;
+- `Service` maps to normalized `service.name` and to the Datadog tag
+  `service:<value>`;
+- `Env` maps to normalized `service.env` and to the Datadog tag `env:<value>`;
+- `Version` maps to normalized `service.version` and to the Datadog tag
+  `version:<value>`;
+- empty `Env` and `Version` are omitted rather than emitted as empty tags;
+- empty `Service` falls back to the root observer service, then `eino-obs`.
+
+These defaults are exporter-level enrichment. Instrumentation call sites do not
+need to construct Datadog tags, raw endpoints, or Datadog payload fields.
+
 ## Credential Validation
 
 Credential validation has two levels:
@@ -204,24 +226,45 @@ Batching rules:
 
 Retry behavior follows [failure-surface.md](failure-surface.md).
 
-Retryable responses:
+Response classification must use these stable `ObservationError`
+classifications:
 
-- HTTP 408;
-- HTTP 409 when Datadog documents it as retryable or conflict/transient;
-- HTTP 429;
-- HTTP 500 through 599;
-- network timeouts and temporary network errors.
+| Condition | Classification | Retryable | Dropped |
+| --- | --- | --- | --- |
+| HTTP 400 or payload validation error | `invalid_config` | false | true |
+| HTTP 401 or 403 | `auth` | false | true |
+| HTTP 404 unsupported site/endpoint | `invalid_config` | false | true |
+| HTTP 408 | `timeout` | true | false |
+| HTTP 409 documented transient conflict | `exporter_failure` | true | false |
+| HTTP 409 not documented transient | `exporter_failure` | false | true |
+| HTTP 413 after split attempts fail | `payload_too_large` | false | true |
+| HTTP 429 | `rate_limit` | true | false |
+| HTTP 500 through 599 | `exporter_failure` | true | false |
+| context cancellation | `canceled` | false | false unless already dropped |
+| deadline or network timeout | `timeout` | true when context still permits retry | false |
+| temporary network error | `exporter_failure` | true | false |
+| other transport error | `exporter_failure` | false unless the error is explicitly temporary | true |
 
-Non-retryable responses:
+`MaxRetries` is the maximum number of additional HTTP sends after the initial
+send:
 
-- HTTP 400 and other validation payload errors;
-- HTTP 401/403 auth errors;
-- HTTP 404 for unsupported endpoint/site unless an endpoint override test
-  explicitly injects it as retryable;
-- HTTP 413 payload too large after deterministic split attempts fail.
+- attempt 1 is the first HTTP send and is not counted as a retry;
+- `MaxRetries=0` performs attempt 1 only;
+- `MaxRetries=3` allows at most four sends total for a batch;
+- every HTTP send attempt increments the fake/exporter `export` attempt count
+  and consumes one `export` failure-injection call index;
+- backoff waits happen only between failed retryable attempts;
+- the retry index for the first retry is 1;
+- delay is `min(RetryMaxDelay, RetryBaseDelay * 2^(retry_index-1))` plus bounded
+  jitter;
+- retry waits and sends must stop when the caller's context is canceled or its
+  deadline expires.
 
-Retries use bounded exponential backoff with jitter. Retry attempts must respect
-the caller's `context.Context`; no retry may outlive the flush/shutdown context.
+Tests must be able to avoid wall-clock sleeps by injecting a deterministic
+`Sleeper`, deterministic jitter source, fake HTTP client, or equivalent test
+hook. `RetryJitterSeed` has no environment variable so tests can force
+deterministic jitter without changing production environment behavior.
+
 When retries are exhausted, retryable observations remain pending when practical
 and visible in fake/state snapshots. Non-retryable failures are dropped and
 recorded with `Dropped: true`.
@@ -244,6 +287,12 @@ recorded with `Dropped: true`.
 - be idempotent;
 - preserve the last shutdown/drain error in state.
 
+After shutdown starts, new exports are rejected with classification
+`exporter_closed`, retryable false, dropped true. After shutdown completes,
+`Flush(ctx)` does not attempt delivery; it returns the last shutdown error if
+shutdown failed, otherwise it follows dirty-state reporting from
+[failure-surface.md](failure-surface.md).
+
 If the caller supplies a custom `HTTPClient`, the exporter must not close shared
 resources it does not own unless the implementation documents an explicit owner
 option.
@@ -257,10 +306,10 @@ Normalized timestamps and durations are already defined by [schema.md](schema.md
 - Datadog `start_ns` is Unix nanoseconds;
 - Datadog `duration` is nanoseconds.
 
-The exporter must reject or drop spans whose timestamps violate Datadog's
-documented intake window with classification `invalid_config` or
-`payload_too_large` only if the response or local preflight makes that
-deterministic. Otherwise let Datadog respond and classify the HTTP response.
+The exporter may reject or drop spans whose timestamps violate Datadog's
+documented intake window with classification `invalid_config` only if local
+preflight makes that deterministic. Reserve `payload_too_large` for size
+failures. Otherwise let Datadog respond and classify the HTTP response.
 
 ## No-Network Tests
 
@@ -273,12 +322,16 @@ Implementation beads must test configuration without live credentials:
 - site-to-endpoint mapping for every supported site;
 - endpoint override to `httptest.Server`;
 - request method, path, headers, content type, and JSON body shape;
-- `ml_app`, service/env/version tags, token metrics, timestamps, durations, and
-  payload splitting;
+- `ml_app`, `service`, `env`, and `version` tags/metadata, token metrics,
+  timestamps, durations, and payload splitting;
 - invalid env values return `invalid_config`;
 - 401/403 classify as `auth`;
-- 408/429/5xx and temporary network errors classify as retryable;
-- 400/413 classify as non-retryable payload/config failures;
+- 408 classifies as `timeout`, 429 as `rate_limit`, and 5xx as
+  `exporter_failure`;
+- 400 classifies as `invalid_config` and 413 as `payload_too_large`;
+- context cancellation classifies as `canceled`;
+- `MaxRetries=0` performs one send and `MaxRetries=3` performs at most four;
+- retry tests can use deterministic sleep/jitter without wall-clock delays;
 - retry exhaustion leaves retryable observations pending when practical;
 - non-retryable failures drop observations and mark dirty state;
 - `Flush` and `Shutdown` use configured retry, timeout, and context behavior;
