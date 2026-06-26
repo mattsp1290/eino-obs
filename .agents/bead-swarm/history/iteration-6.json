@@ -1,0 +1,42 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 6,
+  "branch": "bead-swarm/iteration-6-decide-export-strategy-datadog-http-api",
+  "slug": "decide-export-strategy-datadog-http-api",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.6"],
+  "beads_done": ["eino-obs-6on.6"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial strategy review approved the one-path v0.1.0 Datadog HTTP decision.",
+    "Implementation-readiness review requested a concrete HTTP surface instead of a generic Datadog HTTP label.",
+    "Updated export-strategy.md to select the direct Datadog LLM Observability trace spans HTTP API and explicitly exclude generic traces, logs, Agent-only, SDK-only, and OTLP paths for v0.1.0.",
+    "Focused re-review approved with no blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "export-strategy-correctness",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-6-decide-export-strategy-datadog-http-api-2026-06-26/export-strategy-correctness/04-action-items.md"
+    },
+    {
+      "reviewer": "export-implementation-readiness",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-6-decide-export-strategy-datadog-http-api-2026-06-26-pass2/export-implementation-readiness/04-action-items.md"
+    }
+  ],
+  "status": "complete"
+}
