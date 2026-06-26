@@ -22,7 +22,7 @@ func TestRecorderRecordsPostRedactionSnapshotAndReset(t *testing.T) {
 	event.SetAttr("stream.chunk.summary", "raw delta")
 	span.Events = []model.Event{event}
 
-	if err := rec.Record(context.Background(), span); err != nil {
+	if err := rec.Record(context.Background(), observationFromSpan(span)); err != nil {
 		t.Fatalf("Record() error = %v", err)
 	}
 	snapshot := rec.Snapshot()
@@ -63,10 +63,10 @@ func TestRecorderCapacityDropsAndFlushClearsDirty(t *testing.T) {
 	first := model.NewSpan(model.ObservationIdentity{ID: "span-1", TraceID: "trace-1"}, model.SpanKindRun, "run", time.Now())
 	second := model.NewSpan(model.ObservationIdentity{ID: "span-2", TraceID: "trace-1"}, model.SpanKindRun, "run", time.Now())
 
-	if err := rec.Record(context.Background(), first); err != nil {
+	if err := rec.Record(context.Background(), observationFromSpan(first)); err != nil {
 		t.Fatalf("first Record() error = %v", err)
 	}
-	if err := rec.Record(context.Background(), second); err == nil {
+	if err := rec.Record(context.Background(), observationFromSpan(second)); err == nil {
 		t.Fatalf("second Record() error = nil")
 	}
 	snapshot := rec.Snapshot()
@@ -94,7 +94,7 @@ func TestRecorderConcurrentRecordSnapshotAndReset(t *testing.T) {
 			defer wg.Done()
 			span := model.NewSpan(model.ObservationIdentity{ID: "span", TraceID: "trace"}, model.SpanKindRun, "run", time.Now())
 			span.SetAttr("worker", int64(i))
-			_ = rec.Record(context.Background(), span)
+			_ = rec.Record(context.Background(), observationFromSpan(span))
 			_ = rec.Snapshot()
 		}(i)
 	}
@@ -105,4 +105,36 @@ func TestRecorderConcurrentRecordSnapshotAndReset(t *testing.T) {
 	}()
 	wg.Wait()
 	_ = rec.Snapshot()
+}
+
+func observationFromSpan(span model.Span) einoobs.Observation {
+	obs := einoobs.Observation{
+		ID:         span.Identity.ID,
+		ParentID:   span.Identity.ParentID,
+		TraceID:    span.Identity.TraceID,
+		Kind:       string(span.Kind),
+		Name:       span.Name,
+		Status:     string(span.Status),
+		Timestamp:  span.StartTime,
+		Attributes: map[string]any{},
+	}
+	for key, value := range span.Attributes {
+		obs.Attributes[key] = value
+	}
+	for _, event := range span.Events {
+		obs.Events = append(obs.Events, einoobs.Observation{
+			ID:         event.Identity.ID,
+			ParentID:   event.Identity.ParentID,
+			TraceID:    event.Identity.TraceID,
+			Kind:       string(event.Name),
+			Name:       string(event.Name),
+			Status:     string(event.Status),
+			Timestamp:  event.Timestamp,
+			Attributes: map[string]any{},
+		})
+		for key, value := range event.Attributes {
+			obs.Events[len(obs.Events)-1].Attributes[key] = value
+		}
+	}
+	return obs
 }

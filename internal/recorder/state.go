@@ -19,6 +19,7 @@ type Config struct {
 type State struct {
 	mu sync.Mutex
 
+	epoch     int64
 	redaction redaction.Options
 	capacity  int
 
@@ -52,21 +53,21 @@ func New(config Config) *State {
 }
 
 func (s *State) Record(ctx context.Context, span model.Span) error {
-	s.mu.Lock()
-	s.recordCount++
-	s.incrementLocked("record")
-	s.mu.Unlock()
+	epoch := s.beginOperation("record")
 
 	if err := ctx.Err(); err != nil {
-		return s.recordError("record", "canceled", err, true, false)
+		return s.recordErrorAtEpoch(epoch, "record", "canceled", err, true, false)
 	}
 	redacted, err := redaction.ApplySpan(span, s.redaction)
 	if err != nil {
-		return s.recordError("redact", "redaction", err, false, true)
+		return s.recordErrorAtEpoch(epoch, "redact", "redaction", err, false, true)
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if epoch != s.epoch {
+		return nil
+	}
 	s.sequence++
 	redacted = stampSpan(redacted, s.sequence)
 	if s.shouldDropLocked() {
@@ -79,25 +80,25 @@ func (s *State) Record(ctx context.Context, span model.Span) error {
 }
 
 func (s *State) Export(ctx context.Context, batch []model.Span) error {
-	s.mu.Lock()
-	s.exportCount++
-	s.incrementLocked("export")
-	s.mu.Unlock()
+	epoch := s.beginOperation("export")
 
 	if err := ctx.Err(); err != nil {
-		return s.recordError("export", "canceled", err, true, false)
+		return s.recordErrorAtEpoch(epoch, "export", "canceled", err, true, false)
 	}
 	redacted := make([]model.Span, 0, len(batch))
 	for _, span := range batch {
 		item, err := redaction.ApplySpan(span, s.redaction)
 		if err != nil {
-			return s.recordError("redact", "redaction", err, false, true)
+			return s.recordErrorAtEpoch(epoch, "redact", "redaction", err, false, true)
 		}
 		redacted = append(redacted, item)
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if epoch != s.epoch {
+		return nil
+	}
 	if s.shutdown {
 		obsErr := observationError("export", "exporter_closed", errors.New("fake exporter is shut down"), false, true)
 		for _, span := range redacted {
@@ -105,28 +106,31 @@ func (s *State) Export(ctx context.Context, batch []model.Span) error {
 		}
 		return obsErr
 	}
+	var exportErrs []error
 	for _, span := range redacted {
 		s.sequence++
 		span = stampSpan(span, s.sequence)
 		if s.shouldDropLocked() {
 			obsErr := observationError("export", "capacity", errors.New("fake exporter capacity exceeded"), false, true)
 			s.dropLocked(span, "capacity", obsErr)
+			exportErrs = append(exportErrs, obsErr)
 			continue
 		}
 		s.recorded = append(s.recorded, span)
 	}
-	return nil
+	return errors.Join(exportErrs...)
 }
 
 func (s *State) Flush(ctx context.Context) error {
 	s.mu.Lock()
+	epoch := s.epoch
 	s.flushCount++
 	s.incrementLocked("flush")
 	shutdownErr := cloneErrorPtr(s.lastShutdownErr)
 	s.mu.Unlock()
 
 	if err := ctx.Err(); err != nil {
-		return s.recordFlushError("canceled", err, true)
+		return s.recordFlushErrorAtEpoch(epoch, "canceled", err, true)
 	}
 	if shutdownErr != nil {
 		return *shutdownErr
@@ -134,6 +138,9 @@ func (s *State) Flush(ctx context.Context) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if epoch != s.epoch {
+		return nil
+	}
 	s.pending = nil
 	s.dirty = false
 	s.lastFlushError = nil
@@ -142,6 +149,7 @@ func (s *State) Flush(ctx context.Context) error {
 
 func (s *State) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
+	epoch := s.epoch
 	s.shutdownCount++
 	s.incrementLocked("shutdown")
 	if s.shutdown {
@@ -155,17 +163,26 @@ func (s *State) Shutdown(ctx context.Context) error {
 	s.shutdown = true
 	s.mu.Unlock()
 
-	if err := s.Flush(ctx); err != nil {
-		obsErr := toObservationError("shutdown", err, true, false)
+	if err := ctx.Err(); err != nil {
+		obsErr := observationError("shutdown", "canceled", err, true, false)
 		s.mu.Lock()
+		defer s.mu.Unlock()
+		if epoch != s.epoch {
+			return nil
+		}
 		s.lastShutdownErr = &obsErr
 		s.rememberErrorLocked(obsErr)
 		s.dirty = true
-		s.mu.Unlock()
 		return obsErr
 	}
 
 	s.mu.Lock()
+	if epoch != s.epoch {
+		s.mu.Unlock()
+		return nil
+	}
+	s.pending = nil
+	s.dirty = false
 	s.lastShutdownErr = nil
 	s.mu.Unlock()
 	return nil
@@ -212,24 +229,45 @@ func (s *State) Reset() {
 	s.lastFlushError = nil
 	s.lastShutdownErr = nil
 	s.sequence = 0
+	s.epoch++
 	s.shutdown = false
 	s.droppedErrHist = 0
 }
 
-func (s *State) recordFlushError(classification string, err error, retryable bool) error {
+func (s *State) beginOperation(operation string) int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	epoch := s.epoch
+	switch operation {
+	case "record":
+		s.recordCount++
+	case "export":
+		s.exportCount++
+	}
+	s.incrementLocked(operation)
+	return epoch
+}
+
+func (s *State) recordFlushErrorAtEpoch(epoch int64, classification string, err error, retryable bool) error {
 	obsErr := observationError("flush", classification, err, retryable, false)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if epoch != s.epoch {
+		return nil
+	}
 	s.lastFlushError = &obsErr
 	s.rememberErrorLocked(obsErr)
 	s.dirty = true
 	return obsErr
 }
 
-func (s *State) recordError(operation string, classification string, err error, retryable bool, dropped bool) error {
+func (s *State) recordErrorAtEpoch(epoch int64, operation string, classification string, err error, retryable bool, dropped bool) error {
 	obsErr := observationError(operation, classification, err, retryable, dropped)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if epoch != s.epoch {
+		return nil
+	}
 	s.rememberErrorLocked(obsErr)
 	s.dirty = true
 	return obsErr

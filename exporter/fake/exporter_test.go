@@ -6,7 +6,6 @@ import (
 	"time"
 
 	einoobs "github.com/mattsp1290/eino-obs"
-	"github.com/mattsp1290/eino-obs/internal/model"
 )
 
 func TestExporterPublicExportFlushShutdownAndReset(t *testing.T) {
@@ -36,7 +35,7 @@ func TestExporterPublicExportFlushShutdownAndReset(t *testing.T) {
 		t.Fatalf("Shutdown() error = %v", err)
 	}
 	snapshot := exp.Snapshot()
-	if snapshot.ExportCount != 1 || snapshot.FlushCount != 2 || snapshot.ShutdownCount != 1 {
+	if snapshot.ExportCount != 1 || snapshot.FlushCount != 1 || snapshot.ShutdownCount != 1 {
 		t.Fatalf("counts = export:%d flush:%d shutdown:%d", snapshot.ExportCount, snapshot.FlushCount, snapshot.ShutdownCount)
 	}
 	if got := snapshot.Recorded[0].Attributes["genai.request.summary"]; got != "hell" {
@@ -54,17 +53,17 @@ func TestExporterPublicExportFlushShutdownAndReset(t *testing.T) {
 
 func TestExporterInternalExportAndPostShutdownDrop(t *testing.T) {
 	exp := New(Config{})
-	span := model.NewSpan(model.ObservationIdentity{ID: "span-1", TraceID: "trace-1"}, model.SpanKindRun, "run", time.Now())
-	if err := exp.ExportInternal(context.Background(), []model.Span{span}); err != nil {
-		t.Fatalf("ExportInternal() error = %v", err)
+	obs := einoobs.Observation{ID: "span-1", TraceID: "trace-1", Kind: "run", Name: "run", Status: "ok", Timestamp: time.Now()}
+	if err := exp.Export(context.Background(), []einoobs.Observation{obs}); err != nil {
+		t.Fatalf("Export() error = %v", err)
 	}
 	if err := exp.Shutdown(context.Background()); err != nil {
 		t.Fatalf("Shutdown() error = %v", err)
 	}
 
-	next := model.NewSpan(model.ObservationIdentity{ID: "span-2", TraceID: "trace-1"}, model.SpanKindRun, "run", time.Now())
-	if err := exp.ExportInternal(context.Background(), []model.Span{next}); err == nil {
-		t.Fatalf("post-shutdown ExportInternal() error = nil")
+	next := einoobs.Observation{ID: "span-2", TraceID: "trace-1", Kind: "run", Name: "run", Status: "ok", Timestamp: time.Now()}
+	if err := exp.Export(context.Background(), []einoobs.Observation{next}); err == nil {
+		t.Fatalf("post-shutdown Export() error = nil")
 	}
 	snapshot := exp.Snapshot()
 	if len(snapshot.Recorded) != 1 {
@@ -75,5 +74,19 @@ func TestExporterInternalExportAndPostShutdownDrop(t *testing.T) {
 	}
 	if snapshot.LastError == nil || snapshot.LastError.Classification != "exporter_closed" {
 		t.Fatalf("last error = %#v", snapshot.LastError)
+	}
+}
+
+func TestExporterCapacityDropReturnsError(t *testing.T) {
+	exp := New(Config{Capacity: 1})
+	first := einoobs.Observation{ID: "span-1", TraceID: "trace-1", Kind: "run", Name: "run", Status: "ok", Timestamp: time.Now()}
+	second := einoobs.Observation{ID: "span-2", TraceID: "trace-1", Kind: "run", Name: "run", Status: "ok", Timestamp: time.Now()}
+
+	if err := exp.Export(context.Background(), []einoobs.Observation{first, second}); err == nil {
+		t.Fatalf("Export() capacity drop error = nil")
+	}
+	snapshot := exp.Snapshot()
+	if len(snapshot.Recorded) != 1 || len(snapshot.Dropped) != 1 || !snapshot.Dirty {
+		t.Fatalf("snapshot after capacity drop = %#v", snapshot)
 	}
 }

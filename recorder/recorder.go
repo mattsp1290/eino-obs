@@ -4,7 +4,6 @@ import (
 	"context"
 
 	einoobs "github.com/mattsp1290/eino-obs"
-	"github.com/mattsp1290/eino-obs/internal/model"
 	internalrecorder "github.com/mattsp1290/eino-obs/internal/recorder"
 	"github.com/mattsp1290/eino-obs/internal/redaction"
 )
@@ -29,8 +28,8 @@ func New(config Config) *Recorder {
 	})}
 }
 
-func (r *Recorder) Record(ctx context.Context, span model.Span) error {
-	return r.state.Record(ctx, span)
+func (r *Recorder) Record(ctx context.Context, observation einoobs.Observation) error {
+	return r.state.Record(ctx, internalrecorder.PublicObservationToSpan(observation))
 }
 
 func (r *Recorder) Flush(ctx context.Context) error {

@@ -4,7 +4,6 @@ import (
 	"context"
 
 	einoobs "github.com/mattsp1290/eino-obs"
-	"github.com/mattsp1290/eino-obs/internal/exporter"
 	"github.com/mattsp1290/eino-obs/internal/model"
 	internalrecorder "github.com/mattsp1290/eino-obs/internal/recorder"
 	"github.com/mattsp1290/eino-obs/internal/redaction"
@@ -41,10 +40,6 @@ func (e *Exporter) Export(ctx context.Context, batch []einoobs.Observation) erro
 	return e.state.Export(ctx, spans)
 }
 
-func (e *Exporter) ExportInternal(ctx context.Context, batch []model.Span) error {
-	return e.state.Export(ctx, batch)
-}
-
 func (e *Exporter) Flush(ctx context.Context) error {
 	return e.state.Flush(ctx)
 }
@@ -62,4 +57,3 @@ func (e *Exporter) Reset() {
 }
 
 var _ einoobs.Exporter = (*Exporter)(nil)
-var _ exporter.PublicAdapter = (*Exporter)(nil)
