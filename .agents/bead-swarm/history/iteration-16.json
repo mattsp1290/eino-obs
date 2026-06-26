@@ -1,0 +1,45 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 16,
+  "branch": "bead-swarm/iteration-16-implement-fake-recorder-exporter",
+  "slug": "implement-fake-recorder-exporter",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.25"],
+  "beads_done": ["eino-obs-6on.25"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "go test -race ./recorder ./exporter/fake ./internal/recorder: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial contract/API review requested removal of exported internal/model.Span method signatures and reset epoch protection.",
+    "Initial concurrency/state review requested reset epoch protection and capacity-drop export error signaling.",
+    "Updated public recorder and fake exporter packages to use root-package Observation input and public snapshot types only.",
+    "Updated internal fake state with epoch checks around post-unlock state publication and joined errors for exporter batch capacity drops.",
+    "Focused re-reviews approved both blocker sets with no remaining blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "fake-contract-api",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-16-implement-fake-recorder-exporter-2026-06-26/fake-contract-api/05-re-review.md"
+    },
+    {
+      "reviewer": "fake-concurrency-state",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-16-implement-fake-recorder-exporter-2026-06-26/fake-concurrency-state/05-re-review.md"
+    }
+  ],
+  "completed_at": "2026-06-26T23:11:51Z",
+  "status": "complete"
+}
