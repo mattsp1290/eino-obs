@@ -1,0 +1,42 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 7,
+  "branch": "bead-swarm/iteration-7-decide-exporter-failure-surface",
+  "slug": "decide-exporter-failure-surface",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.11"],
+  "beads_done": ["eino-obs-6on.11"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "API consistency review approved the non-panicking helper and optional hook contract.",
+    "Initial testability review requested deterministic retry retention, dirty-state lifecycle, aggregate errors, post-shutdown semantics, and fake injection counting rules.",
+    "Updated failure-surface.md with mandatory state transitions and operation-scoped call-indexed fake injection rules.",
+    "Focused re-review approved with no blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "failure-api-consistency",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-7-decide-exporter-failure-surface-2026-06-26/failure-api-consistency/04-action-items.md"
+    },
+    {
+      "reviewer": "failure-testability-readiness",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-7-decide-exporter-failure-surface-2026-06-26-pass2/failure-testability-readiness/04-action-items.md"
+    }
+  ],
+  "status": "complete"
+}
