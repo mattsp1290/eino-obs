@@ -153,8 +153,8 @@ increment `DroppedErrorHistory`, and keep `LastError` accurate.
 - preserve static configuration such as service name, redaction options,
   capacity limits, and configured failure injection plan unless the caller uses
   an explicit `ResetFailures` or constructs a new fake;
-- be synchronized with record, export, flush, shutdown, snapshot, and hook/error
-  recording state updates.
+- be synchronized with record, export, flush, shutdown, snapshot, and
+  error-handler/error recording state updates.
 
 After `Reset`, a new snapshot should be indistinguishable from a newly
 constructed fake with the same configuration and failure plan.
@@ -166,9 +166,9 @@ post-reset sequence numbers and counters. Operations already in progress when
 `Reset` starts must publish any later state updates only after re-checking the
 current epoch; if their epoch was reset, they must drop those stale updates
 instead of reintroducing pre-reset observations, pending batches, errors, or
-hook results. Tests may assert race safety across overlapping reset calls, but
-must not assert semantic contents for operations intentionally racing across the
-reset boundary beyond this epoch rule.
+error-handler results. Tests may assert race safety across overlapping reset
+calls, but must not assert semantic contents for operations intentionally racing
+across the reset boundary beyond this epoch rule.
 
 ## Post-Redaction Inspection
 
@@ -234,9 +234,9 @@ After shutdown starts, new `Export` calls must not accept or enqueue
 observations. They return or record an `ObservationErrorSnapshot` with operation
 `export`, classification `exporter_closed`, `Retryable: false`, and `Dropped:
 true`. Post-shutdown helper no-ops from the root observer still follow
-[failure-surface.md](failure-surface.md): they do not invoke user hooks and
-record at most one bounded local `exporter_closed` state error when snapshots
-are available.
+[failure-surface.md](failure-surface.md): they do not invoke user error
+handlers and record at most one bounded local `exporter_closed` state error
+when snapshots are available.
 
 When there is no real exporter configured, the default no-network recorder still
 supports `Flush` and `Shutdown`; they are synchronization points over local
@@ -254,7 +254,7 @@ Required operations:
 - `flush`: each public `Flush` call;
 - `shutdown`: each public `Shutdown` call;
 - `credential_validation`: each validation attempt;
-- `error_handler`: each attempted user error-handler/hook invocation.
+- `error_handler`: each attempted user error-handler invocation.
 
 An injection rule should be able to specify:
 
@@ -273,8 +273,8 @@ are independent.
 Failure injection configuration must be deterministic and inspectable. Snapshot
 state should expose operation counters so tests can assert exactly which call
 failed. Injection operation names match `error.operation` values from
-[schema.md](schema.md); older test prose may call the `error_handler` operation
-"hook", but recorded errors and snapshot counters must use `error_handler`.
+[schema.md](schema.md); recorded errors and snapshot counters must use
+`error_handler`.
 Injection plans are immutable after first use unless an implementation provides
 an explicitly synchronized `ResetFailures` that also resets all operation
 counters.

@@ -143,7 +143,7 @@ Required headers:
 Optional headers:
 
 - `Content-Encoding: gzip` when compression is enabled;
-- request correlation headers only if a later contract adds them.
+- no request correlation headers are required for `v0.1.0`.
 
 The payload is the Datadog mapping from [schema.md](schema.md). The exporter
 owns only transport-level batching, encoding, retries, and errors. It must not

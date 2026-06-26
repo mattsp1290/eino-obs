@@ -4,6 +4,23 @@ This directory holds durable design context for the follow-on beads. Each design
 bead should update the matching file here so decisions are not hidden only in
 issue text.
 
+## Freeze Status
+
+The core implementation contracts are frozen by `eino-obs-6on.59` for the first
+implementation pass:
+
+- [public-api.md](public-api.md)
+- [schema.md](schema.md)
+- [redaction.md](redaction.md)
+- [fake-recorder.md](fake-recorder.md)
+- [failure-surface.md](failure-surface.md)
+- [export-strategy.md](export-strategy.md)
+- [exporter-config.md](exporter-config.md)
+
+Implementation beads should treat these files as the source of truth. If a
+later implementation discovers a blocking ambiguity, file a Beads issue and
+update the affected contract in the same change that resolves it.
+
 ## Files
 
 - [architecture.md](architecture.md): export strategy and package boundary

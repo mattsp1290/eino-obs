@@ -11,7 +11,7 @@ failures surface through:
 - `Flush(ctx) error`;
 - `Shutdown(ctx) error`;
 - recorder/exporter state snapshots;
-- optional error hooks decided here;
+- optional error handler hooks;
 - normalized observation error records where the schema supports them.
 
 This preserves ergonomic instrumentation call sites while still giving
@@ -21,13 +21,13 @@ applications explicit synchronization points for delivery failures.
 
 Start, end, event, chunk, and handle `Error` helpers must not panic when
 exporting or recording fails. Helper methods should return no error unless a
-later contract-freeze bead deliberately revises the public API.
+later Beads issue deliberately revises the public API contract.
 
 On helper-time failure:
 
 - the helper records an internal observation error if recorder state is
   available;
-- the helper invokes the optional error hook if configured;
+- the helper invokes the optional error handler if configured;
 - the helper marks the observer/exporter state as dirty so `Flush` and
   `Shutdown` can report the failure;
 - the helper drops the failed observation only when it cannot safely retain it
@@ -53,8 +53,9 @@ type ObservationError struct {
 type ErrorHandler func(context.Context, ObservationError)
 ```
 
-`Operation` is a stable string such as `record`, `export`, `flush`, `shutdown`,
-`redact`, `batch`, or `credential_validation`.
+`Operation` is one of the schema error operations: `record`, `export`, `flush`,
+`shutdown`, `redact`, `batch`, `credential_validation`, `error_handler`, or
+another operation explicitly added by [schema.md](schema.md).
 
 `Classification` is a stable string such as `recorder_failure`,
 `exporter_failure`, `auth`, `rate_limit`, `timeout`, `canceled`,
@@ -64,21 +65,22 @@ type ErrorHandler func(context.Context, ObservationError)
 `Dropped` means the observation cannot be retried or inspected through recorder
 state.
 
-## Error Hooks
+## Error Handlers
 
 `Config` may include an optional `ErrorHandler`.
 
-Hook rules:
+Error handler rules:
 
-- hooks are best-effort notification only;
-- hooks must never be required for correctness;
-- hooks run after the failure is recorded in state when state is available;
-- hooks must not be called while holding recorder/exporter locks;
-- hooks must receive a defensive copy of the `ObservationError`;
-- hook panics are recovered, converted to an `ObservationError` with
+- error handlers are best-effort notification only;
+- error handlers must never be required for correctness;
+- error handlers run after the failure is recorded in state when state is
+  available;
+- error handlers must not be called while holding recorder/exporter locks;
+- error handlers must receive a defensive copy of the `ObservationError`;
+- error handler panics are recovered, converted to an `ObservationError` with
   `Operation: "error_handler"` and `Classification: "panic"`, and recorded in
   state when possible;
-- hook failures must not recursively invoke the same hook.
+- error handler failures must not recursively invoke the same error handler.
 
 ## Retry And Dirty State
 
@@ -93,7 +95,7 @@ from pending export state.
 
 Dirty state is set by:
 
-- any helper-time record, redact, batch, hook, or export failure;
+- any helper-time record, redact, batch, error-handler, or export failure;
 - any failed `Flush`;
 - any failed `Shutdown`;
 - any dropped observation.
@@ -145,7 +147,7 @@ Shutdown must:
   most one bounded local observation error with `Classification:
   "exporter_closed"` when recorder snapshots are available;
 - never enqueue exportable observations after shutdown starts;
-- not invoke user error hooks for post-shutdown helper no-ops;
+- not invoke user error handlers for post-shutdown helper no-ops;
 - be idempotent;
 - return the flush/drain/release error if shutdown cannot complete cleanly.
 
@@ -189,7 +191,7 @@ injection for:
 - flush failures;
 - shutdown failures;
 - credential validation failures;
-- hook panics or hook-recording failures.
+- error-handler panics or error-handler recording failures.
 
 Error injection should be scoped by operation and, where practical, by call
 number so tests can assert retry and state behavior.
@@ -202,7 +204,7 @@ operation. Call indexes are one-based attempted operation calls:
 - `flush`: each public `Flush` call;
 - `shutdown`: each public `Shutdown` call;
 - `credential_validation`: each validation attempt;
-- `hook`: each attempted user hook invocation.
+- `error_handler`: each attempted user error-handler invocation.
 
 Injected failures increment the operation call index even when they fail.
 
@@ -219,7 +221,7 @@ Examples:
   omitted and recorded through redaction metadata rather than returned from
   helpers;
 - unrecoverable redaction implementation errors are classified as `redaction`
-  and surfaced through state, hook, flush, or shutdown as appropriate.
+  and surfaced through state, error handler, flush, or shutdown as appropriate.
 
 ## Testable Error Surfaces
 
@@ -228,8 +230,8 @@ Implementation beads must test:
 - helper methods do not panic when recorder/exporter record fails;
 - helper methods do not return exporter errors from normal observation calls;
 - helper failures are visible in recorder/exporter state;
-- optional error hooks are invoked after state is updated;
-- hook panics are recovered and recorded without recursion;
+- optional error handlers are invoked after state is updated;
+- error handler panics are recovered and recorded without recursion;
 - `Flush(ctx)` returns delivery, auth, payload, retry exhaustion, and context
   cancellation errors;
 - `Flush(ctx)` is idempotent and retains retryable observations when practical;
@@ -237,7 +239,7 @@ Implementation beads must test:
   release errors;
 - helper calls after shutdown do not panic;
 - fake error injection can target record, export, flush, shutdown, credential
-  validation, and hook paths;
+  validation, and error-handler paths;
 - retryable export failures remain pending and are delivered by a later
   successful flush;
 - non-retryable export failures are marked dropped and removed from pending
@@ -247,7 +249,8 @@ Implementation beads must test:
 - aggregate errors are compatible with `errors.Join` and expose
   `ObservationError` through `errors.As`;
 - post-shutdown helper calls do not enqueue exportable observations, do not
-  invoke hooks, and record at most one bounded `exporter_closed` state error;
+  invoke error handlers, and record at most one bounded `exporter_closed` state
+  error;
 - operation-scoped call-indexed fake failures count attempted calls as defined
   above;
 - application operation errors remain distinct from observation/export errors.
