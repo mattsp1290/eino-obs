@@ -1,0 +1,44 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 14,
+  "branch": "bead-swarm/iteration-14-implement-exporter-recorder-interfaces",
+  "slug": "implement-exporter-recorder-interfaces",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.16"],
+  "beads_done": ["eino-obs-6on.16"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial public API review requested defensive cloning for public mutable attribute containers and explicit errors.As coverage.",
+    "Initial internal contract review requested an explicit public/internal exporter adapter boundary, snapshot-safe internal errors, and operation-count visibility.",
+    "Updated public Observation cloning for Metadata, map[string]string, Summary.Fields, and nested mutable containers; added errors.As coverage through errors.Join.",
+    "Updated internal exporter interfaces with PublicAdapter, snapshot-safe ObservationError fields, and Snapshot.OperationCounts.",
+    "Focused re-reviews approved both blocker sets with no remaining blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "public-exporter-api-contract",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-14-implement-exporter-recorder-interfaces-2026-06-26/public-exporter-api-contract/05-re-review.md"
+    },
+    {
+      "reviewer": "internal-recorder-state-contract",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-14-implement-exporter-recorder-interfaces-2026-06-26/internal-recorder-state-contract/05-re-review.md"
+    }
+  ],
+  "completed_at": "2026-06-26T22:38:49Z",
+  "status": "complete"
+}
