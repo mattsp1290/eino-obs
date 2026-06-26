@@ -1,0 +1,13 @@
+{
+  "iteration": 20,
+  "issue": "eino-obs-6on.19",
+  "title": "Implement session admission and run lifecycle instrumentation helpers",
+  "branch": "bead-swarm/iteration-20-session-run-helpers",
+  "status": "in_progress",
+  "started_at": "2026-06-26",
+  "scope": [
+    "public package session/run helper types and handles",
+    "parented normalized observations for sessions and runs",
+    "context correlation propagation and focused no-network tests"
+  ]
+}
