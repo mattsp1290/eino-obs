@@ -1,0 +1,11 @@
+{
+  "iteration": 1,
+  "branch": "bead-swarm/iteration-1-initialize-go-module-go-version-and-de",
+  "slug": "initialize-go-module-go-version-and-de",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "selected_beads": ["eino-obs-6on.1"],
+  "beads_done_pending_close": [],
+  "beads_blocked": [],
+  "beads_partial": []
+}
