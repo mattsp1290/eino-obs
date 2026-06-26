@@ -58,7 +58,8 @@ type ErrorHandler func(context.Context, ObservationError)
 
 `Classification` is a stable string such as `recorder_failure`,
 `exporter_failure`, `auth`, `rate_limit`, `timeout`, `canceled`,
-`payload_too_large`, `invalid_config`, `redaction`, or `unknown`.
+`payload_too_large`, `invalid_config`, `redaction`, `shutdown`,
+`exporter_closed`, `panic`, or `unknown`.
 
 `Dropped` means the observation cannot be retried or inspected through recorder
 state.
@@ -79,6 +80,35 @@ Hook rules:
   state when possible;
 - hook failures must not recursively invoke the same hook.
 
+## Retry And Dirty State
+
+Retryable export failures must keep their observations pending unless context
+cancellation, shutdown, or bounded capacity prevents retention. A retained
+retryable observation stays visible in pending state until a later successful
+flush delivers it or until it is dropped with an observation error that has
+`Dropped: true`.
+
+Non-retryable export failures must mark the observation dropped and remove it
+from pending export state.
+
+Dirty state is set by:
+
+- any helper-time record, redact, batch, hook, or export failure;
+- any failed `Flush`;
+- any failed `Shutdown`;
+- any dropped observation.
+
+While dirty state is set, `Flush(ctx)` must return an error even when there are
+no buffered exportable observations. A successful `Flush(ctx)` clears dirty
+state only when all pending retryable observations are delivered and no
+undropped historical failure remains unresolved. Dropped observations and
+shutdown failures remain visible in snapshots even after later successful
+flushes.
+
+`Shutdown(ctx)` reports dirty state before returning nil. If shutdown drains all
+pending observations but dirty state remains because of dropped observations or
+historical failures, shutdown returns the aggregate error for those failures.
+
 ## Flush Behavior
 
 `Flush(ctx)` is the caller-visible delivery synchronization point.
@@ -92,13 +122,15 @@ Flush must:
 - return an error when delivery, batching, credential validation, payload
   encoding, or context cancellation prevents known observations from being
   delivered;
-- retain retryable observations when practical;
+- retain retryable observations unless context cancellation, shutdown, or bounded
+  capacity prevents retention;
 - mark permanently rejected observations as dropped in state;
 - be safe to call more than once.
 
-If multiple failures occur, `Flush` should return an aggregate error or an error
-that preserves access to each underlying failure through `errors.Is` /
-`errors.As` or an exported aggregate shape chosen by implementation.
+If multiple failures occur, `Flush` must return an error compatible with
+`errors.Join`. Implementations may wrap `errors.Join`, but callers and tests
+must be able to recover at least one `ObservationError` with `errors.As` and use
+`errors.Is` for wrapped sentinel causes where those sentinels exist.
 
 ## Shutdown Behavior
 
@@ -109,13 +141,20 @@ Shutdown must:
 - call `Flush(ctx)` or perform equivalent draining;
 - release exporter resources;
 - prevent new observations from being accepted for export after shutdown starts;
-- make subsequent helper calls no-op into recorder state or return no-op handles
-  without panicking;
+- make subsequent helper calls return inert handles or no-op after recording at
+  most one bounded local observation error with `Classification:
+  "exporter_closed"` when recorder snapshots are available;
+- never enqueue exportable observations after shutdown starts;
+- not invoke user error hooks for post-shutdown helper no-ops;
 - be idempotent;
 - return the flush/drain/release error if shutdown cannot complete cleanly.
 
 After shutdown starts, helper-time observation failures should be classified as
 `shutdown` or `exporter_closed` rather than `unknown`.
+
+After shutdown completes, `Flush(ctx)` must not attempt delivery. It returns the
+last shutdown error if shutdown failed; otherwise it returns nil unless dirty
+state contains unresolved dropped observations or historical failures.
 
 ## Recorder State After Failures
 
@@ -129,11 +168,16 @@ State snapshots should include:
 - dropped observation count;
 - last observation error;
 - all observation errors in occurrence order, when bounded storage permits;
+- whether dirty state is set;
 - flush count and last flush error;
 - shutdown count and last shutdown error.
 
 State snapshots must be safe for concurrent readers and must not expose mutable
 internal maps or slices.
+
+If error history is bounded and overflows, snapshots must preserve the newest
+errors, increment a dropped-error-history count, and retain the last observation
+error.
 
 ## Fake Error Injection
 
@@ -149,6 +193,18 @@ injection for:
 
 Error injection should be scoped by operation and, where practical, by call
 number so tests can assert retry and state behavior.
+
+Fake error injection must be operation-scoped and call-indexed for every listed
+operation. Call indexes are one-based attempted operation calls:
+
+- `record`: each attempted recorder record call;
+- `export`: each attempted export batch send, not each observation;
+- `flush`: each public `Flush` call;
+- `shutdown`: each public `Shutdown` call;
+- `credential_validation`: each validation attempt;
+- `hook`: each attempted user hook invocation.
+
+Injected failures increment the operation call index even when they fail.
 
 ## Redaction Failures
 
@@ -182,6 +238,18 @@ Implementation beads must test:
 - helper calls after shutdown do not panic;
 - fake error injection can target record, export, flush, shutdown, credential
   validation, and hook paths;
+- retryable export failures remain pending and are delivered by a later
+  successful flush;
+- non-retryable export failures are marked dropped and removed from pending
+  export state;
+- dirty state causes `Flush` and `Shutdown` to return errors until the contract's
+  clearing conditions are met;
+- aggregate errors are compatible with `errors.Join` and expose
+  `ObservationError` through `errors.As`;
+- post-shutdown helper calls do not enqueue exportable observations, do not
+  invoke hooks, and record at most one bounded `exporter_closed` state error;
+- operation-scoped call-indexed fake failures count attempted calls as defined
+  above;
 - application operation errors remain distinct from observation/export errors.
 
 ## Related Contracts
