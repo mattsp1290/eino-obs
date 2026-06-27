@@ -1,0 +1,13 @@
+{
+  "iteration": 33,
+  "issue": "eino-obs-6on.40",
+  "title": "Create runnable examples for fake recorder mode and selected Datadog-compatible exporter configuration",
+  "branch": "bead-swarm/iteration-33-runnable-examples",
+  "status": "in_progress",
+  "started_at": "2026-06-26",
+  "scope": [
+    "no-network runnable example",
+    "Datadog exporter configuration example using fake endpoint",
+    "local smoke tests without live credentials"
+  ]
+}
