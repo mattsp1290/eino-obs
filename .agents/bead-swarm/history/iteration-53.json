@@ -1,0 +1,52 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 53,
+  "branch": "bead-swarm/iteration-53-streaming-lifecycle-public-tests",
+  "slug": "streaming-lifecycle-public-tests",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Parent implemented the selected public helper test bead directly and used two independent reviewer subagents plus targeted re-review subagents.",
+  "selected_beads": ["eino-obs-6on.57"],
+  "beads_done": ["eino-obs-6on.57"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "implementation_summary": [
+    "Added a public helper workflow test covering streaming success, partial failure, stream cancellation, retry, compaction, interrupt, resume, lifecycle cancellation, and generic error helpers.",
+    "Verified first-token latency, total latency, token usage including known zero output tokens, stream cancellation events, lifecycle metadata, metadata redaction, input/output/compaction summary redaction, correlation, public identity, timing, and error envelopes.",
+    "Strengthened the test after review to pin lifecycle metadata redaction, stream output summaries, public observation identity, event identity, timestamps, partial usage, and lifecycle error fields."
+  ],
+  "validation": [
+    "go test ./...: pass",
+    "go build ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check: pass",
+    "reviewer public-helper-coverage-review go test ./...: pass",
+    "reviewer public-helper-regression-review go test ./... -run TestPublicStreamingAndLifecycleHelpersWorkflow: pass",
+    "re-review public-helper-coverage-review go test ./... -run TestPublicStreamingAndLifecycleHelpersWorkflow: pass",
+    "re-review public-helper-regression-review go test ./... -run TestPublicStreamingAndLifecycleHelpersWorkflow: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial reviews requested stronger assertions for lifecycle metadata and redaction, public observation identity/timing, stream output summary redaction, and lifecycle error envelopes."
+  ],
+  "reviews": [
+    {
+      "reviewer": "public-helper-coverage-review",
+      "initial_verdict": "REQUEST_CHANGES",
+      "final_verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-53-streaming-lifecycle-public-tests-2026-06-27/public-helper-coverage-review/05-re-review.md"
+    },
+    {
+      "reviewer": "public-helper-regression-review",
+      "initial_verdict": "REQUEST_CHANGES",
+      "final_verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-53-streaming-lifecycle-public-tests-2026-06-27/public-helper-regression-review/05-re-review.md"
+    }
+  ],
+  "status": "complete"
+}
