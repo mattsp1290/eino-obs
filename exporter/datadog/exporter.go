@@ -88,10 +88,22 @@ func New(config Config) (*Exporter, error) {
 		client = &http.Client{Timeout: resolved.Timeout}
 		ownsClient = true
 	}
+	exporter := &Exporter{config: resolved, client: client, ownsClient: ownsClient}
 	if resolved.ValidateCredentials {
-		return nil, invalidConfig(errors.New("live credential validation is not implemented"))
+		ctx := context.Background()
+		var cancel context.CancelFunc
+		if resolved.Timeout > 0 {
+			ctx, cancel = context.WithTimeout(ctx, resolved.Timeout)
+			defer cancel()
+		}
+		if err := exporter.validateCredentials(ctx); err != nil {
+			if ownsClient {
+				_ = exporter.Shutdown(context.Background())
+			}
+			return nil, err
+		}
 	}
-	return &Exporter{config: resolved, client: client, ownsClient: ownsClient}, nil
+	return exporter, nil
 }
 
 func ResolveConfig(config Config) (Config, error) {
@@ -210,7 +222,7 @@ func (e *Exporter) Export(ctx context.Context, batch []einoobs.Observation) erro
 	for _, observation := range batch {
 		span, err := redaction.ApplySpan(internalrecorder.PublicObservationToSpan(observation), redaction.Options{})
 		if err != nil {
-			return exportError("redaction", err, false, true)
+			return observationError("export", "redaction", err, false, true)
 		}
 		spans = append(spans, span)
 	}
@@ -218,24 +230,35 @@ func (e *Exporter) Export(ctx context.Context, batch []einoobs.Observation) erro
 	if len(payload.Spans) == 0 {
 		return nil
 	}
+	return e.postPayload(ctx, payload, "export")
+}
+
+func (e *Exporter) validateCredentials(ctx context.Context) error {
+	start := time.Now().UTC()
+	span := model.NewSpan(model.ObservationIdentity{ID: "credential-validation", TraceID: "credential-validation"}, model.SpanKindExportFlush, "credential_validation", start)
+	span.End(start, model.StatusOK)
+	return e.postPayload(ctx, buildPayload(e.config, []model.Span{span}), "credential_validation")
+}
+
+func (e *Exporter) postPayload(ctx context.Context, payload payload, operation string) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return exportError("exporter_failure", err, false, true)
+		return observationError(operation, "exporter_failure", err, false, true)
 	}
 	if !e.config.DisableCompression {
 		var compressed bytes.Buffer
 		gzipWriter := gzip.NewWriter(&compressed)
 		if _, err := gzipWriter.Write(body); err != nil {
-			return exportError("exporter_failure", err, false, true)
+			return observationError(operation, "exporter_failure", err, false, true)
 		}
 		if err := gzipWriter.Close(); err != nil {
-			return exportError("exporter_failure", err, false, true)
+			return observationError(operation, "exporter_failure", err, false, true)
 		}
 		body = compressed.Bytes()
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.config.Endpoint, bytes.NewReader(body))
 	if err != nil {
-		return exportError("invalid_config", err, false, true)
+		return observationError(operation, "invalid_config", err, false, true)
 	}
 	req.Header.Set("DD-API-KEY", e.config.APIKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -248,7 +271,7 @@ func (e *Exporter) Export(ctx context.Context, batch []einoobs.Observation) erro
 	resp, err := e.client.Do(req)
 	if err != nil {
 		classification, retryable, dropped := classifyTransportError(ctx, err)
-		return exportError(classification, err, retryable, dropped)
+		return observationError(operation, classification, err, retryable, dropped)
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
@@ -256,7 +279,7 @@ func (e *Exporter) Export(ctx context.Context, batch []einoobs.Observation) erro
 		return nil
 	}
 	classification, retryable, dropped := classifyStatus(resp.StatusCode)
-	return exportError(classification, fmt.Errorf("Datadog intake returned HTTP %d", resp.StatusCode), retryable, dropped)
+	return observationError(operation, classification, fmt.Errorf("Datadog intake returned HTTP %d", resp.StatusCode), retryable, dropped)
 }
 
 func classifyTransportError(ctx context.Context, err error) (string, bool, bool) {
@@ -296,9 +319,9 @@ func classifyStatus(status int) (string, bool, bool) {
 	}
 }
 
-func exportError(classification string, err error, retryable bool, dropped bool) einoobs.ObservationError {
+func observationError(operation string, classification string, err error, retryable bool, dropped bool) einoobs.ObservationError {
 	return einoobs.ObservationError{
-		Operation:      "export",
+		Operation:      operation,
 		Classification: classification,
 		Err:            err,
 		Retryable:      retryable,

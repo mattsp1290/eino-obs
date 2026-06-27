@@ -200,11 +200,81 @@ func TestExplicitZeroAndFalseOverridesWinOverEnvironment(t *testing.T) {
 	}
 }
 
-func TestValidateCredentialsFailsClosedWithoutSendingRequest(t *testing.T) {
+func TestValidateCredentialsPostsMinimalPayload(t *testing.T) {
 	clearEnv(t)
 	var requests int
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	var got payload
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
+		if r.Header.Get("DD-API-KEY") != "key" {
+			t.Fatalf("DD-API-KEY = %q, want key", r.Header.Get("DD-API-KEY"))
+		}
+		gzipReader, err := gzip.NewReader(r.Body)
+		if err != nil {
+			t.Fatalf("gzip.NewReader() error = %v", err)
+		}
+		defer gzipReader.Close()
+		if err := json.NewDecoder(gzipReader).Decode(&got); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	exp, err := New(Config{
+		APIKey:              "key",
+		Endpoint:            server.URL,
+		MLApp:               "app",
+		ValidateCredentials: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if exp == nil {
+		t.Fatalf("New() exporter = nil")
+	}
+	if requests != 1 {
+		t.Fatalf("constructor sent %d requests, want 1", requests)
+	}
+	if len(got.Spans) != 1 || got.Spans[0].Name != "credential_validation" {
+		t.Fatalf("validation payload = %#v", got)
+	}
+}
+
+func TestValidateCredentialsAllowsExplicitZeroTimeout(t *testing.T) {
+	clearEnv(t)
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if err := r.Context().Err(); err != nil {
+			t.Fatalf("request context error = %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	exp, err := New(Config{
+		APIKey:              "key",
+		Endpoint:            server.URL,
+		MLApp:               "app",
+		ValidateCredentials: true,
+		TimeoutOverride:     Duration(0),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("requests = %d, want 1", requests)
+	}
+	if exp.Config().Timeout != 0 {
+		t.Fatalf("Timeout = %v, want 0", exp.Config().Timeout)
+	}
+}
+
+func TestValidateCredentialsClassifiesAuth(t *testing.T) {
+	clearEnv(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer server.Close()
 
@@ -214,15 +284,12 @@ func TestValidateCredentialsFailsClosedWithoutSendingRequest(t *testing.T) {
 		MLApp:               "app",
 		ValidateCredentials: true,
 	})
-	if err == nil {
-		t.Fatalf("New() validation error = nil")
-	}
 	var obsErr einoobs.ObservationError
-	if !errors.As(err, &obsErr) || obsErr.Operation != "credential_validation" || obsErr.Classification != "invalid_config" {
-		t.Fatalf("validation error = %#v", err)
+	if !errors.As(err, &obsErr) {
+		t.Fatalf("New() error = %T, want ObservationError", err)
 	}
-	if requests != 0 {
-		t.Fatalf("constructor sent %d requests, want none", requests)
+	if obsErr.Operation != "credential_validation" || obsErr.Classification != "auth" || obsErr.Retryable || !obsErr.Dropped {
+		t.Fatalf("ObservationError = %#v", obsErr)
 	}
 }
 
