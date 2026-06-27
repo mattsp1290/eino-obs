@@ -1,0 +1,43 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 41,
+  "branch": "bead-swarm/iteration-41-no-live-network-evidence",
+  "slug": "no-live-network-evidence",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "already-satisfied single-bead evidence iteration implemented directly by parent; independent reviewer subagents were used for review",
+  "selected_beads": ["eino-obs-6on.60"],
+  "beads_done": ["eino-obs-6on.60"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "Datadog-env-unset go test ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [],
+  "already_satisfied_evidence": [
+    "go test ./... passed with DD_API_KEY, DD_SITE, DD_LLMOBS_ML_APP, EINO_OBS_ML_APP, DD_SERVICE, DD_ENV, DD_VERSION, EINO_OBS_DATADOG_ENDPOINT, EINO_OBS_EXPORT_TIMEOUT, EINO_OBS_EXPORT_BATCH_SIZE, EINO_OBS_EXPORT_MAX_PAYLOAD_BYTES, EINO_OBS_EXPORT_MAX_RETRIES, EINO_OBS_EXPORT_RETRY_BASE_DELAY, EINO_OBS_EXPORT_RETRY_MAX_DELAY, EINO_OBS_VALIDATE_CREDENTIALS, and EINO_OBS_EXPORT_DISABLE_COMPRESSION explicitly unset.",
+    "Networked Datadog exporter tests use httptest local fake endpoints, localhost endpoint overrides, or local fake transports.",
+    "README documents that the normal test suite must not require live Datadog credentials or external network access."
+  ],
+  "reviews": [
+    {
+      "reviewer": "no-credentials-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-41-no-live-network-evidence-2026-06-26/no-credentials-review/"
+    },
+    {
+      "reviewer": "network-scope-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-41-no-live-network-evidence-2026-06-26/network-scope-review/"
+    }
+  ],
+  "status": "complete-existing"
+}
