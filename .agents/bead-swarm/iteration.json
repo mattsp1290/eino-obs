@@ -1,0 +1,11 @@
+{
+  "iteration": 45,
+  "branch": "bead-swarm/iteration-45-tool-integration",
+  "slug": "tool-integration",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "selected_beads": ["eino-obs-6on.22"],
+  "beads_done_pending_close": [],
+  "beads_blocked": [],
+  "beads_partial": []
+}
