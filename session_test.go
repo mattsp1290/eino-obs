@@ -115,6 +115,73 @@ func TestSessionStartRunParentsRunToSession(t *testing.T) {
 	}
 }
 
+func TestSessionErrorExportsFailureAndCancellation(t *testing.T) {
+	observer := New(Config{})
+	start := time.Date(2026, 6, 27, 6, 20, 0, 0, time.UTC)
+
+	failed := observer.StartSession(context.Background(), SessionStart{
+		Correlation: Correlation{
+			ObservationID:       "session-failed",
+			ParentObservationID: "root",
+			TraceID:             "trace-session",
+			SessionID:           "session-1",
+		},
+		StartTime: start,
+	})
+	failed.Error(SessionError{
+		Err:            errors.New("safe session failure"),
+		Classification: "admission_failed",
+		Metadata:       Metadata{"outcome": "failed"},
+	})
+	failed.End(SessionEnd{})
+
+	canceled := observer.StartSession(context.Background(), SessionStart{
+		Correlation: Correlation{
+			ObservationID: "session-canceled",
+			TraceID:       "trace-session",
+			SessionID:     "session-2",
+		},
+		StartTime: start.Add(time.Second),
+	})
+	canceled.Error(SessionError{
+		Err:            context.Canceled,
+		Classification: "canceled",
+		Canceled:       true,
+		Metadata:       Metadata{"outcome": "canceled"},
+	})
+
+	snapshot := observer.Snapshot()
+	if snapshot.ExportCount != 2 || len(snapshot.Observations) != 2 {
+		t.Fatalf("snapshot count = exports:%d observations:%d, want 2/2", snapshot.ExportCount, len(snapshot.Observations))
+	}
+	gotFailed := snapshot.Observations[0]
+	validateNormalizedPublicSpan(t, gotFailed)
+	if gotFailed.ID != "session-failed" ||
+		gotFailed.ParentID != "root" ||
+		gotFailed.TraceID != "trace-session" ||
+		gotFailed.Status != "error" ||
+		gotFailed.Error == nil ||
+		gotFailed.Error.Operation != "session" ||
+		gotFailed.Error.Classification != "admission_failed" ||
+		gotFailed.Error.Retryable ||
+		gotFailed.Attributes["metadata.outcome"] != "failed" {
+		t.Fatalf("failed session = status:%q error:%#v attrs:%#v", gotFailed.Status, gotFailed.Error, gotFailed.Attributes)
+	}
+
+	gotCanceled := snapshot.Observations[1]
+	validateNormalizedPublicSpan(t, gotCanceled)
+	if gotCanceled.ID != "session-canceled" ||
+		gotCanceled.TraceID != "trace-session" ||
+		gotCanceled.Status != "canceled" ||
+		gotCanceled.Error == nil ||
+		gotCanceled.Error.Operation != "session" ||
+		gotCanceled.Error.Classification != "canceled" ||
+		gotCanceled.Error.Retryable ||
+		gotCanceled.Attributes["metadata.outcome"] != "canceled" {
+		t.Fatalf("canceled session = status:%q error:%#v attrs:%#v", gotCanceled.Status, gotCanceled.Error, gotCanceled.Attributes)
+	}
+}
+
 func TestRunErrorExportsTerminalFailureOnce(t *testing.T) {
 	observer := New(Config{})
 	cause := errors.New("runtime failed")
