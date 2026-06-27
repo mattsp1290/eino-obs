@@ -1,0 +1,28 @@
+{
+  "iteration": 36,
+  "branch": "bead-swarm/iteration-36-exporter-http-tests-evidence",
+  "slug": "exporter-http-tests-evidence",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "selected_beads": ["eino-obs-6on.31"],
+  "beads_done_pending_close": ["eino-obs-6on.31"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "already_satisfied_by": {
+    "eino-obs-6on.31": {
+      "evidence": [
+        "exporter/datadog/exporter_test.go: TestExportPostsMappedPayload covers real exporter request metadata and mapped payloads through httptest.",
+        "exporter/datadog/exporter_test.go: TestValidateCredentialsClassifiesAuth and TestExportClassifiesHTTPStatus cover auth and status failure classification without live credentials.",
+        "exporter/datadog/exporter_test.go: TestExportRetriesRetryableStatusWithBackoff, TestExportStopsAfterRetryExhaustion, and TestExportStopsWhenRetrySleepIsCanceled cover retry behavior against local fake HTTP endpoints.",
+        "exporter/datadog/exporter_test.go: TestFlushDeliversPendingRetryableExport and TestFlushCanceledPreservesPendingRetryableExport cover flush behavior for pending retryable exports.",
+        "exporter/datadog/exporter_test.go: TestShutdownDrainsPendingAndRejectsNewExports and TestFailedShutdownRetainsErrorAndDoesNotRetryOnFlush cover shutdown behavior.",
+        "exporter/datadog/exporter_test.go uses clearEnv and httptest/local transports for these paths, so go test ./... requires no live Datadog credentials."
+      ],
+      "validation": [
+        "targeted exporter tests",
+        "go test ./...",
+        "go test -race ./..."
+      ]
+    }
+  }
+}
