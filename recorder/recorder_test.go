@@ -219,6 +219,91 @@ func TestSnapshotPreservesNormalizedErrorCode(t *testing.T) {
 	}
 }
 
+func TestRecorderRecordPreservesPublicStreamEvents(t *testing.T) {
+	rec := New(Config{})
+	at := time.Now().UTC()
+	obs := einoobs.Observation{
+		ID:            "stream-obs",
+		ParentID:      "run-obs",
+		TraceID:       "trace-1",
+		Kind:          "stream",
+		Name:          "chat.stream",
+		Status:        "canceled",
+		Timestamp:     at,
+		Duration:      time.Second,
+		DurationKnown: true,
+		Attributes: map[string]any{
+			"genai.provider":         "openai",
+			"genai.model":            "gpt-example",
+			"genai.latency.total_ms": int64(1000),
+		},
+		Error: &einoobs.ObservationError{Operation: "stream", Classification: "canceled", Retryable: false},
+		Events: []einoobs.Observation{
+			{
+				ID:        "stream-obs.chunk.0",
+				ParentID:  "stream-obs",
+				TraceID:   "trace-1",
+				Kind:      "stream.chunk",
+				Name:      "stream.chunk",
+				Status:    "ok",
+				Timestamp: at.Add(100 * time.Millisecond),
+				Attributes: map[string]any{
+					"stream.chunk.index": int64(0),
+				},
+			},
+			{
+				ID:        "stream-obs.first_token",
+				ParentID:  "stream-obs",
+				TraceID:   "trace-1",
+				Kind:      "stream.first_token",
+				Name:      "stream.first_token",
+				Status:    "ok",
+				Timestamp: at.Add(125 * time.Millisecond),
+				Attributes: map[string]any{
+					"genai.latency.first_token_ms": int64(125),
+				},
+			},
+			{
+				ID:        "stream-obs.cancellation",
+				ParentID:  "stream-obs",
+				TraceID:   "trace-1",
+				Kind:      "cancellation",
+				Name:      "cancellation",
+				Status:    "canceled",
+				Timestamp: at.Add(time.Second),
+				Attributes: map[string]any{
+					"cancellation.reason": "canceled",
+					"error.canceled":      true,
+					"error.retryable":     false,
+				},
+				Error: &einoobs.ObservationError{Operation: "stream", Classification: "canceled", Retryable: false},
+			},
+		},
+	}
+
+	if err := rec.Record(context.Background(), obs); err != nil {
+		t.Fatalf("Record() error = %v", err)
+	}
+	snapshot := rec.Snapshot()
+	if snapshot.RecordCount != 1 || len(snapshot.Recorded) != 1 {
+		t.Fatalf("snapshot = count:%d recorded:%d", snapshot.RecordCount, len(snapshot.Recorded))
+	}
+	got := snapshot.Recorded[0]
+	if len(got.Events) != 3 ||
+		got.Events[0].Name != "stream.chunk" ||
+		got.Events[1].Name != "stream.first_token" ||
+		got.Events[2].Name != "cancellation" {
+		t.Fatalf("stream events = %#v", got.Events)
+	}
+	if got.Events[2].Error == nil ||
+		got.Events[2].Error.Operation != "stream" ||
+		got.Events[2].Error.Retryable ||
+		got.Events[2].Attributes["error.canceled"] != true ||
+		got.Events[2].Attributes["error.retryable"] != false {
+		t.Fatalf("cancellation event = error:%#v attrs:%#v", got.Events[2].Error, got.Events[2].Attributes)
+	}
+}
+
 func observationFromSpan(span model.Span) einoobs.Observation {
 	obs := einoobs.Observation{
 		ID:         span.Identity.ID,

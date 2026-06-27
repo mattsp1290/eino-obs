@@ -327,6 +327,10 @@ stream.Chunk(einoobs.StreamChunk{
     OutputSummary: einoobs.Summary{Name: "delta", Text: "caller summary"},
 })
 
+stream.FirstToken(einoobs.StreamFirstToken{
+    Latency: 125 * time.Millisecond,
+})
+
 stream.End(einoobs.StreamEnd{
     Usage: einoobs.TokenUsage{InputTokens: 100, OutputTokens: 80, TotalTokens: 180},
 })

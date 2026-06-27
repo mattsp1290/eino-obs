@@ -524,6 +524,9 @@ func PublicObservationToSpan(obs einoobs.Observation) model.Span {
 			Retryable:      boolPtr(obs.Error.Retryable),
 			Dropped:        boolPtr(obs.Error.Dropped),
 		}
+		if canceled, ok := obs.Attributes["error.canceled"].(bool); ok {
+			span.Error.Canceled = boolPtr(canceled)
+		}
 	}
 	for _, event := range obs.Events {
 		span.Events = append(span.Events, publicObservationToEvent(event))
@@ -540,6 +543,18 @@ func publicObservationToEvent(obs einoobs.Observation) model.Event {
 	event.Status = model.Status(obs.Status)
 	event.Attributes = publicAttributesToModel(obs.Attributes)
 	event.Redaction = publicRedactionToModel(obs.Redaction)
+	if obs.Error != nil {
+		event.Error = &model.ObservationError{
+			Operation:      obs.Error.Operation,
+			Classification: obs.Error.Classification,
+			Message:        obs.Error.Error(),
+			Retryable:      boolPtr(obs.Error.Retryable),
+			Dropped:        boolPtr(obs.Error.Dropped),
+		}
+		if canceled, ok := obs.Attributes["error.canceled"].(bool); ok {
+			event.Error.Canceled = boolPtr(canceled)
+		}
+	}
 	return event
 }
 
