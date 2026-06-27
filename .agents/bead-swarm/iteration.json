@@ -1,0 +1,11 @@
+{
+  "iteration": 52,
+  "branch": "bead-swarm/iteration-52-lifecycle-event-api-integration",
+  "slug": "lifecycle-event-api-integration",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "selected_beads": ["eino-obs-6on.23"],
+  "beads_done_pending_close": [],
+  "beads_blocked": [],
+  "beads_partial": []
+}
