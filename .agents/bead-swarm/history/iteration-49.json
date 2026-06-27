@@ -1,0 +1,50 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 49,
+  "branch": "bead-swarm/iteration-49-normalized-shape-tests",
+  "slug": "normalized-shape-tests",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Parent implemented the selected focused test bead directly and used two independent reviewer subagents plus targeted re-review subagents.",
+  "selected_beads": ["eino-obs-6on.32"],
+  "beads_done": ["eino-obs-6on.32"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "implementation_summary": [
+    "Added normalized model tests covering session/run/model_call/stream hierarchy, correlation attributes, UTC timestamp normalization, duration/latency, retry attempt, token usage including explicit zeros, and first-token stream event shape.",
+    "Split model_call and stream span coverage so stream.first_token is attached to the normalized stream span shape.",
+    "Added direct attribute assertions so optional-but-acceptance-critical correlation, latency, retry, and token fields cannot silently disappear."
+  ],
+  "validation": [
+    "go test ./internal/model: pass",
+    "go test ./...: pass",
+    "go build ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial schema review requested moving stream.first_token off the model_call span and onto a stream span.",
+    "Initial maintainability review requested direct assertions for acceptance-critical optional attributes."
+  ],
+  "reviews": [
+    {
+      "reviewer": "normalized-schema-coverage-review",
+      "initial_verdict": "REQUEST_CHANGES",
+      "final_verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-49-normalized-shape-tests-2026-06-27/normalized-schema-coverage-review/05-re-review.md"
+    },
+    {
+      "reviewer": "shape-regression-maintainability-review",
+      "initial_verdict": "REQUEST_CHANGES",
+      "final_verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-49-normalized-shape-tests-2026-06-27/shape-regression-maintainability-review/05-re-review.md"
+    }
+  ],
+  "status": "complete"
+}
