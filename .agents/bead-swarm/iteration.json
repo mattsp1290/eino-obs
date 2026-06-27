@@ -1,0 +1,13 @@
+{
+  "iteration": 22,
+  "issue": "eino-obs-6on.50",
+  "title": "Implement selected exporter configuration and client scaffold",
+  "branch": "bead-swarm/iteration-22-datadog-exporter-config",
+  "status": "in_progress",
+  "started_at": "2026-06-26",
+  "scope": [
+    "Datadog HTTP exporter typed configuration",
+    "environment fallback and endpoint/site resolution",
+    "credential-safe constructor and HTTP client scaffold"
+  ]
+}
