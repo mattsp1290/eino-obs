@@ -1,0 +1,42 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 37,
+  "branch": "bead-swarm/iteration-37-fake-recorder-error-injection",
+  "slug": "fake-recorder-error-injection",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "single-bead implementation performed directly by parent; independent reviewer subagents were used for review",
+  "selected_beads": ["eino-obs-6on.26"],
+  "beads_done": ["eino-obs-6on.26"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./exporter/fake ./internal/recorder: pass",
+    "go test ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Failure API Review requested export injection pending/dropped state and call-indexed failures; fixed and approved after focused re-review.",
+    "Recorder State Review requested dropped-observation snapshot entries, shutdown-start semantics, and flush error state preservation; fixed and approved after focused re-review."
+  ],
+  "reviews": [
+    {
+      "reviewer": "failure-api-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-37-fake-recorder-error-injection-2026-06-26/failure-api-review/"
+    },
+    {
+      "reviewer": "recorder-state-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-37-fake-recorder-error-injection-2026-06-26/recorder-state-review/"
+    }
+  ],
+  "status": "complete"
+}
