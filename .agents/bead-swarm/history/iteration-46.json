@@ -1,0 +1,43 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 46,
+  "branch": "bead-swarm/iteration-46-tool-helper-test-evidence",
+  "slug": "tool-helper-test-evidence",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Already-satisfied metadata-only iteration; parent verified existing tests and used two independent reviewer subagents.",
+  "selected_beads": ["eino-obs-6on.58"],
+  "beads_done": ["eino-obs-6on.58"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "already_satisfied_evidence": [
+    "tool_test.go includes public helper tests for ToolRegistered, ToolMaterialized, StartToolCall/End/Error, ToolSettled, AGUIToolMaterialized, and AGUIToolSettled.",
+    "Tests assert tool call IDs, AG-UI thread/run IDs, redacted input/output summaries, latency, settlement status, terminal errors, fallback tool identity, no-network snapshots, and normalized model validation."
+  ],
+  "validation": [
+    "go test ./...: pass",
+    "go test -run TestTool|TestAGUITool|TestStartTool|TestServerTool ./: pass",
+    "go test -race ./...: pass",
+    "git diff --check: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [],
+  "reviews": [
+    {
+      "reviewer": "test-coverage-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-46-tool-helper-test-evidence-2026-06-27/test-coverage-review/04-action-items.md"
+    },
+    {
+      "reviewer": "acceptance-evidence-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-46-tool-helper-test-evidence-2026-06-27/acceptance-evidence-review/04-action-items.md"
+    }
+  ],
+  "status": "complete-existing"
+}
