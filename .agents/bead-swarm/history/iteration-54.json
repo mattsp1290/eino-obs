@@ -1,0 +1,53 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 54,
+  "branch": "bead-swarm/iteration-54-public-helper-coverage-matrix",
+  "slug": "public-helper-coverage-matrix",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Parent completed an already-satisfied/evidence iteration directly and used two independent reviewer subagents plus targeted re-review subagents.",
+  "selected_beads": ["eino-obs-6on.35"],
+  "beads_done": ["eino-obs-6on.35"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "implementation_summary": [
+    "Recorded a public helper coverage matrix evidence file mapping session, run, model call, stream, tool, and lifecycle acceptance areas to concrete tests.",
+    "Added direct public Session.Error coverage for terminal session failure and cancellation after review identified the missing matrix cell.",
+    "Verified the public helper matrix with targeted coverage tests plus full test, build, race, and diff-check gates."
+  ],
+  "validation": [
+    "go test ./... -run 'Test(Session|Run|ModelCall|Stream|Tool|Retry|Compaction|Interrupt|Resume|Cancellation|Error|PublicStreamingAndLifecycle)': pass",
+    "go test ./...: pass",
+    "go build ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check: pass",
+    "reviewer helper-matrix-evidence-review targeted matrix test: pass",
+    "reviewer helper-matrix-gap-review go test ./...: pass",
+    "re-review helper-matrix-gap-review targeted matrix test and go test ./...: pass",
+    "re-review helper-matrix-evidence-review targeted matrix test: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial gap review found that Session.Error lacked direct public helper coverage; added TestSessionErrorExportsFailureAndCancellation and updated the evidence file."
+  ],
+  "reviews": [
+    {
+      "reviewer": "helper-matrix-evidence-review",
+      "initial_verdict": "APPROVE",
+      "final_verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-54-public-helper-coverage-matrix-2026-06-27/helper-matrix-evidence-review/05-re-review.md"
+    },
+    {
+      "reviewer": "helper-matrix-gap-review",
+      "initial_verdict": "REQUEST_CHANGES",
+      "final_verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-54-public-helper-coverage-matrix-2026-06-27/helper-matrix-gap-review/05-re-review.md"
+    }
+  ],
+  "status": "complete"
+}
