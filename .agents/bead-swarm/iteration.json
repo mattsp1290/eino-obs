@@ -1,0 +1,20 @@
+{
+  "iteration": 39,
+  "branch": "bead-swarm/iteration-39-race-test-evidence",
+  "slug": "race-test-evidence",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "selected_beads": ["eino-obs-6on.37"],
+  "beads_done_pending_close": ["eino-obs-6on.37"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "already_satisfied_by": {
+    "eino-obs-6on.37": {
+      "evidence": [
+        "go test -race ./... passed on current main after recorder/exporter concurrency and fake coverage changes.",
+        "No packages required exclusion from the race gate."
+      ],
+      "validation": ["go test ./...", "go test -race ./...", "git diff --check"]
+    }
+  }
+}
