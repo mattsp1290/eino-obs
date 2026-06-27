@@ -1,0 +1,45 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 27,
+  "branch": "bead-swarm/iteration-27-exporter-batch-limits",
+  "slug": "exporter-batch-limits",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.52"],
+  "beads_done": ["eino-obs-6on.52"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./exporter/datadog: pass",
+    "go test ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Both initial reviewers requested preserving valid spans when a single oversized span exceeds MaxPayloadBytes.",
+    "Updated payload splitting to skip oversized spans with a batch payload_too_large error while continuing to send valid payloads.",
+    "Added a mixed-batch regression test proving valid spans before and after an oversized span are sent deterministically.",
+    "Focused re-reviews approved the fix with no remaining blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "batch-payload",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-27-exporter-batch-limits-2026-06-26/batch-payload/06-re-review.md"
+    },
+    {
+      "reviewer": "retry-batch-interaction",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-27-exporter-batch-limits-2026-06-26/retry-batch-interaction/06-re-review.md"
+    }
+  ],
+  "completed_at": "2026-06-27T01:10:02Z",
+  "status": "complete"
+}
