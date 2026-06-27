@@ -147,3 +147,55 @@ func TestBuildPayloadMapsEventsAndErrors(t *testing.T) {
 		t.Fatalf("event redaction = %#v", records)
 	}
 }
+
+func TestBuildPayloadMapsStreamEvents(t *testing.T) {
+	start := time.Now().UTC()
+	span := model.NewSpan(model.ObservationIdentity{ID: "stream-obs", ParentID: "run-obs", TraceID: "trace-1"}, model.SpanKindStream, "chat.stream", start)
+	span.SetAttr("genai.provider", "openai")
+	span.SetAttr("genai.model", "gpt-example")
+	span.SetAttr("genai.latency.first_token_ms", int64(125))
+	span.SetAttr("genai.latency.total_ms", int64(1000))
+	span.SetAttr("genai.usage.input_tokens", int64(0))
+	span.End(start.Add(time.Second), model.StatusCanceled)
+	retryable := false
+	canceled := true
+	span.Error = &model.ObservationError{
+		Operation:      "stream",
+		Classification: "canceled",
+		Retryable:      &retryable,
+		Canceled:       &canceled,
+	}
+	chunk := model.NewEvent(model.ObservationIdentity{ID: "stream-obs.chunk.0", ParentID: "stream-obs", TraceID: "trace-1"}, model.EventStreamChunk, start.Add(100*time.Millisecond))
+	chunk.SetAttr("stream.chunk.index", int64(0))
+	chunk.SetAttr("stream.chunk.summary", "delta")
+	firstToken := model.NewEvent(model.ObservationIdentity{ID: "stream-obs.first_token", ParentID: "stream-obs", TraceID: "trace-1"}, model.EventStreamFirstTok, start.Add(125*time.Millisecond))
+	firstToken.SetAttr("genai.latency.first_token_ms", int64(125))
+	cancellation := model.NewEvent(model.ObservationIdentity{ID: "stream-obs.cancellation", ParentID: "stream-obs", TraceID: "trace-1"}, model.EventCancellation, start.Add(time.Second))
+	cancellation.Status = model.StatusCanceled
+	cancellation.SetAttr("cancellation.reason", "canceled")
+	cancellation.Error = span.Error
+	span.Events = []model.Event{chunk, firstToken, cancellation}
+
+	got := buildPayload(Config{MLApp: "app"}, []model.Span{span})
+	if len(got.Spans) != 1 {
+		t.Fatalf("spans = %d, want 1", len(got.Spans))
+	}
+	item := got.Spans[0]
+	if item.Meta["kind"] != "llm" ||
+		item.Meta["genai.latency.first_token_ms"] != int64(125) ||
+		item.Metrics["input_tokens"] != int64(0) {
+		t.Fatalf("stream payload meta/metrics = meta:%#v metrics:%#v", item.Meta, item.Metrics)
+	}
+	if len(item.Events) != 3 {
+		t.Fatalf("events = %d, want 3", len(item.Events))
+	}
+	if item.Events[0].Name != "stream.chunk" ||
+		item.Events[0].Meta["stream.chunk.index"] != int64(0) ||
+		item.Events[1].Name != "stream.first_token" ||
+		item.Events[1].Meta["genai.latency.first_token_ms"] != int64(125) ||
+		item.Events[2].Name != "cancellation" ||
+		item.Events[2].Meta["error.canceled"] != true ||
+		item.Events[2].Meta["error.retryable"] != false {
+		t.Fatalf("stream events payload = %#v", item.Events)
+	}
+}

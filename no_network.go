@@ -151,6 +151,9 @@ func publicObservationToSpan(observation Observation) (model.Span, error) {
 			Retryable:      boolPtr(observation.Error.Retryable),
 			Dropped:        boolPtr(observation.Error.Dropped),
 		}
+		if canceled, ok := observation.Attributes["error.canceled"].(bool); ok {
+			span.Error.Canceled = boolPtr(canceled)
+		}
 	}
 	for _, event := range observation.Events {
 		span.Events = append(span.Events, publicObservationToEvent(event))
@@ -179,6 +182,9 @@ func publicObservationToEvent(observation Observation) model.Event {
 			Cause:          observation.Error.Err,
 			Retryable:      boolPtr(observation.Error.Retryable),
 			Dropped:        boolPtr(observation.Error.Dropped),
+		}
+		if canceled, ok := observation.Attributes["error.canceled"].(bool); ok {
+			event.Error.Canceled = boolPtr(canceled)
 		}
 	}
 	return event
