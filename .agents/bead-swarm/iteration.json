@@ -1,0 +1,13 @@
+{
+  "iteration": 61,
+  "branch": "bead-swarm/iteration-61-record-exact-tag-or-commit-for-eino-agen",
+  "slug": "record-exact-tag-or-commit-for-eino-agen",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "selected_beads": [
+    "eino-obs-6on.42"
+  ],
+  "beads_done_pending_close": [],
+  "beads_blocked": [],
+  "beads_partial": []
+}
