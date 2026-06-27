@@ -65,6 +65,7 @@ type ObservationErrorSnapshot struct {
 	Operation      string
 	Classification string
 	Type           string
+	Code           string
 	Message        string
 	Retryable      bool
 	Dropped        bool
@@ -180,6 +181,7 @@ func errorSnapshot(err exporter.ObservationError) ObservationErrorSnapshot {
 		Operation:      err.Operation,
 		Classification: err.Classification,
 		Type:           err.Type,
+		Code:           err.Code,
 		Message:        err.Message,
 		Retryable:      err.Retryable,
 		Dropped:        err.Dropped,
@@ -194,6 +196,7 @@ func modelErrorSnapshotPtr(err *model.ObservationError) *ObservationErrorSnapsho
 		Operation:      err.Operation,
 		Classification: err.Classification,
 		Type:           err.Type,
+		Code:           err.Code,
 		Message:        err.Message,
 	}
 	if err.Retryable != nil {

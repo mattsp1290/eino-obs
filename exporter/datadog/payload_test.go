@@ -101,6 +101,7 @@ func TestBuildPayloadMapsEventsAndErrors(t *testing.T) {
 	span.Error = &model.ObservationError{
 		Operation:      "run",
 		Type:           "runtime",
+		Code:           "runtime.failure",
 		Message:        "safe",
 		Classification: "runtime",
 		Retryable:      &retryable,
@@ -118,6 +119,7 @@ func TestBuildPayloadMapsEventsAndErrors(t *testing.T) {
 	item := got.Spans[0]
 	if item.Meta["error.operation"] != "run" ||
 		item.Meta["error.type"] != "runtime" ||
+		item.Meta["error.code"] != "runtime.failure" ||
 		item.Meta["error.message"] != "safe" ||
 		item.Meta["error.classification"] != "runtime" ||
 		item.Meta["error.retryable"] != false ||

@@ -1,0 +1,10 @@
+{
+  "iteration": 42,
+  "bead": "eino-obs-6on.18",
+  "branch": "bead-swarm/iteration-42-observation-errors",
+  "status": "review",
+  "summary": "Implemented normalized internal observation error fields and helpers for class/code/message/cause metadata, safe span/event recording, Datadog error.code mapping, and public conversion cause preservation.",
+  "tests": [
+    "go test ./..."
+  ]
+}

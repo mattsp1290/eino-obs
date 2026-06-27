@@ -158,6 +158,7 @@ func addErrorMeta(meta map[string]any, err *model.ObservationError) {
 	}
 	addStringMeta(meta, "error.operation", err.Operation)
 	addStringMeta(meta, "error.type", err.Type)
+	addStringMeta(meta, "error.code", err.Code)
 	addStringMeta(meta, "error.message", err.Message)
 	addStringMeta(meta, "error.classification", err.Classification)
 	if err.Retryable != nil {
