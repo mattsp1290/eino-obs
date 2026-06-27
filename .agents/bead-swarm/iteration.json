@@ -1,0 +1,13 @@
+{
+  "iteration": 21,
+  "issue": "eino-obs-6on.44",
+  "title": "Implement tool registration and materialization observation helpers",
+  "branch": "bead-swarm/iteration-21-tool-registration-materialization",
+  "status": "in_progress",
+  "started_at": "2026-06-26",
+  "scope": [
+    "public package tool registration and materialization helper types",
+    "normalized tool registration/materialization events",
+    "correlation, metadata, and input-summary redaction tests"
+  ]
+}
