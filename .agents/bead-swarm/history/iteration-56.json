@@ -1,0 +1,57 @@
+{
+  "schema": "bead-swarm-history-v1",
+  "iteration": 56,
+  "branch": "bead-swarm/iteration-56-quality-gates-docs",
+  "slug": "quality-gates-docs",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Parent implemented the focused quality-gate documentation change directly and used two independent reviewer subagents for review.",
+  "selected_beads": [
+    "eino-obs-6on.3"
+  ],
+  "beads_done_pending_close": [
+    "eino-obs-6on.3"
+  ],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "implementation_summary": [
+    "Added repo-root Makefile targets for fmt-check, vet, test, race, and check.",
+    "Updated README validation guidance to document the Makefile commands and underlying gofmt, go vet, go test, and race-test commands.",
+    "Documented that race testing is expected to pass on supported local platforms and does not require live Datadog credentials."
+  ],
+  "validation": [
+    "make check: pass",
+    "git diff --check main...HEAD: pass",
+    "quality-gate-command-review make -n fmt-check vet test race check: pass",
+    "quality-gate-command-review make fmt-check: pass",
+    "quality-gate-command-review make vet: pass",
+    "quality-gate-command-review make test: pass",
+    "quality-gate-command-review make race: pass",
+    "quality-docs-practicality-review make -n check: pass",
+    "quality-docs-practicality-review make fmt-check: pass",
+    "quality-docs-practicality-review make vet: pass",
+    "quality-docs-practicality-review make test: pass",
+    "quality-docs-practicality-review make race: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "blocker_summary": [],
+  "suggestion_summary": [
+    "Consider having fmt-check print the list of unformatted files when it fails."
+  ],
+  "reviews": [
+    {
+      "reviewer": "quality-gate-command-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-56-quality-gates-docs-2026-06-27/quality-gate-command-review/04-action-items.md"
+    },
+    {
+      "reviewer": "quality-docs-practicality-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-56-quality-gates-docs-2026-06-27/quality-docs-practicality-review/04-action-items.md"
+    }
+  ]
+}
