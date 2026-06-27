@@ -2,6 +2,7 @@ package einoobs
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -208,4 +209,132 @@ func TestResumeEventExportsCorrelationReasonStatusAndRedactsMetadata(t *testing.
 		t.Fatalf("sensitive metadata leaked: %#v", got.Attributes)
 	}
 	assertPublicRedactionRecord(t, got.Redaction, "metadata.Authorization", "default_omitted")
+}
+
+func TestCancellationEventExportsCanceledErrorAndCorrelation(t *testing.T) {
+	observer := New(Config{})
+	at := time.Date(2026, 6, 26, 12, 20, 0, 0, time.UTC)
+	ctx := ContextWithCorrelation(context.Background(), Correlation{
+		TraceID:             "trace-3",
+		ObservationID:       "run-3",
+		ParentObservationID: "session-3",
+		SessionID:           "session-3",
+		RunID:               "run-3",
+	})
+
+	observer.Cancellation(ctx, CancellationEvent{
+		Operation:      "run",
+		Classification: "user_canceled",
+		Reason:         "human_feedback",
+		Err:            context.Canceled,
+		Time:           at,
+		Metadata: Metadata{
+			"safe":    "visible",
+			"api_key": "secret",
+		},
+	})
+
+	snapshot := observer.Snapshot()
+	if len(snapshot.Observations) != 1 {
+		t.Fatalf("observations = %d, want 1", len(snapshot.Observations))
+	}
+	got := snapshot.Observations[0]
+	if got.Kind != "cancellation" || got.Name != "cancellation" || got.Status != "canceled" || !got.Timestamp.Equal(at) {
+		t.Fatalf("cancellation observation = %#v", got)
+	}
+	if got.TraceID != "trace-3" || got.ID != "run-3" || got.ParentID != "session-3" {
+		t.Fatalf("identity = %#v", got)
+	}
+	if got.Error == nil ||
+		got.Error.Operation != "run" ||
+		got.Error.Classification != "user_canceled" ||
+		got.Error.Retryable {
+		t.Fatalf("cancellation error = %#v", got.Error)
+	}
+	if got.Attributes["cancellation.reason"] != "human_feedback" ||
+		got.Attributes["error.operation"] != "run" ||
+		got.Attributes["error.classification"] != "user_canceled" ||
+		got.Attributes["error.canceled"] != true ||
+		got.Attributes["error.retryable"] != false ||
+		got.Attributes["metadata.safe"] != "visible" {
+		t.Fatalf("cancellation attributes = %#v", got.Attributes)
+	}
+	if _, ok := got.Attributes["metadata.api_key"]; ok {
+		t.Fatalf("sensitive metadata leaked: %#v", got.Attributes)
+	}
+	assertPublicRedactionRecord(t, got.Redaction, "metadata.api_key", "default_omitted")
+}
+
+func TestErrorEventExportsGenericErrorFieldsAndExistingObservationError(t *testing.T) {
+	observer := New(Config{})
+	at := time.Date(2026, 6, 26, 12, 25, 0, 0, time.UTC)
+	cause := ObservationError{
+		Operation:      "tool_call",
+		Classification: "tool_timeout",
+		Err:            errors.New("safe timeout"),
+		Retryable:      true,
+		Dropped:        true,
+	}
+
+	observer.Error(context.Background(), ErrorEvent{
+		Correlation: Correlation{
+			TraceID:             "trace-4",
+			ObservationID:       "run-4.error",
+			ParentObservationID: "run-4",
+			RunID:               "run-4",
+		},
+		Operation:      "ignored",
+		Classification: "ignored",
+		Err:            cause,
+		Retryable:      false,
+		Time:           at,
+		Metadata:       Metadata{"phase": "tool"},
+	})
+
+	snapshot := observer.Snapshot()
+	if len(snapshot.Observations) != 1 {
+		t.Fatalf("observations = %d, want 1", len(snapshot.Observations))
+	}
+	got := snapshot.Observations[0]
+	if got.Kind != "error" || got.Name != "error" || got.Status != "error" || !got.Timestamp.Equal(at) {
+		t.Fatalf("error observation = %#v", got)
+	}
+	if got.TraceID != "trace-4" || got.ID != "run-4.error" || got.ParentID != "run-4" {
+		t.Fatalf("identity = %#v", got)
+	}
+	if got.Error == nil ||
+		got.Error.Operation != "tool_call" ||
+		got.Error.Classification != "tool_timeout" ||
+		!got.Error.Retryable ||
+		!got.Error.Dropped {
+		t.Fatalf("error fields = %#v", got.Error)
+	}
+	if got.Attributes["error.operation"] != "tool_call" ||
+		got.Attributes["error.classification"] != "tool_timeout" ||
+		got.Attributes["error.retryable"] != true ||
+		got.Attributes["error.dropped"] != true ||
+		got.Attributes["metadata.phase"] != "tool" {
+		t.Fatalf("error attributes = %#v", got.Attributes)
+	}
+}
+
+func TestLifecycleCancellationAndErrorHelpersTolerateNilInputs(t *testing.T) {
+	var observer *Observer
+	observer.Cancellation(nil, CancellationEvent{})
+	observer.Error(nil, ErrorEvent{})
+
+	observer = New(Config{})
+	observer.Cancellation(nil, CancellationEvent{})
+	observer.Error(nil, ErrorEvent{Err: errors.New("safe")})
+
+	snapshot := observer.Snapshot()
+	if len(snapshot.Observations) != 2 {
+		t.Fatalf("observations = %d, want 2", len(snapshot.Observations))
+	}
+	if snapshot.Observations[0].Kind != "cancellation" || snapshot.Observations[0].Status != "canceled" {
+		t.Fatalf("default cancellation = %#v", snapshot.Observations[0])
+	}
+	if snapshot.Observations[1].Kind != "error" || snapshot.Observations[1].Status != "error" {
+		t.Fatalf("default error = %#v", snapshot.Observations[1])
+	}
 }

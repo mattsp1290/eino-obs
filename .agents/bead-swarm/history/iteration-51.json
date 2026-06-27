@@ -1,0 +1,52 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 51,
+  "branch": "bead-swarm/iteration-51-cancellation-error-lifecycle-events",
+  "slug": "cancellation-error-lifecycle-events",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Parent implemented the selected focused lifecycle bead directly and used two independent reviewer subagents.",
+  "selected_beads": ["eino-obs-6on.49"],
+  "beads_done": ["eino-obs-6on.49"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "implementation_summary": [
+    "Added public CancellationEvent and ErrorEvent structs plus Observer.Cancellation and Observer.Error lifecycle helpers.",
+    "Cancellation events export non-retryable canceled observations with shared error classification, cancellation reason, correlation, metadata redaction, and normalized error attributes.",
+    "Generic error events export failed observations with shared observation error normalization, including existing ObservationError preservation, retryable, dropped, correlation, and metadata behavior."
+  ],
+  "validation": [
+    "go test ./...: pass",
+    "go build ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check: pass",
+    "reviewer lifecycle-error-schema-review go test ./...: pass",
+    "reviewer lifecycle-error-schema-review git diff --check main...HEAD: pass",
+    "reviewer lifecycle-safety-api-review go test -count=1 ./...: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [],
+  "review_suggestion_summary": [
+    "Consider adding direct plain-error ErrorEvent coverage and default nil-input field assertions.",
+    "Consider downstream conversion/export coverage for ErrorEvent and documentation that CancellationEvent is non-retryable by design.",
+    "Consider consolidating terminal lifecycle error construction if more lifecycle helpers are added."
+  ],
+  "reviews": [
+    {
+      "reviewer": "lifecycle-error-schema-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-51-cancellation-error-lifecycle-events-2026-06-27/lifecycle-error-schema-review/04-action-items.md"
+    },
+    {
+      "reviewer": "lifecycle-safety-api-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-51-cancellation-error-lifecycle-events-2026-06-27/lifecycle-safety-api-review/04-action-items.md"
+    }
+  ],
+  "status": "complete"
+}
