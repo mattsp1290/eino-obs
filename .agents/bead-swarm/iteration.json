@@ -1,0 +1,13 @@
+{
+  "iteration": 24,
+  "issue": "eino-obs-6on.28",
+  "title": "Implement the selected Datadog-compatible exporter path behind the exporter abstraction",
+  "branch": "bead-swarm/iteration-24-datadog-exporter-path",
+  "status": "in_progress",
+  "started_at": "2026-06-26",
+  "scope": [
+    "Datadog exporter Export implementation",
+    "single local HTTP POST path using mapped payloads",
+    "fake/no-network mode isolation tests"
+  ]
+}
