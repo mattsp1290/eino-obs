@@ -170,6 +170,129 @@ func TestToolMaterializedRequiresToolCallID(t *testing.T) {
 	nilObserver.ToolMaterialized(context.Background(), ToolMaterialized{ToolName: "search"})
 }
 
+func TestToolInstrumentationCohesiveCorrelationRedactionAndErrors(t *testing.T) {
+	observer := New(Config{
+		Redaction: RedactionOptions{CaptureInputSummary: true, CaptureOutputSummary: true, MaxSummaryBytes: 4},
+	})
+	ctx := ContextWithCorrelation(context.Background(), Correlation{
+		SessionID:           "session-1",
+		RunID:               "run-1",
+		ThreadID:            "thread-1",
+		AGUIRunID:           "agui-run-1",
+		TraceID:             "trace-1",
+		ParentObservationID: "run-obs",
+	})
+	start := time.Date(2026, 6, 27, 2, 0, 0, 0, time.UTC)
+
+	observer.ToolRegistered(ctx, ToolRegistered{
+		Correlation: Correlation{ObservationID: "registered"},
+		ToolKind:    "server",
+		Time:        start,
+	})
+	observer.ToolMaterialized(ctx, ToolMaterialized{
+		Correlation:  Correlation{ObservationID: "materialized"},
+		ToolCallID:   "tool-call-1",
+		InputSummary: Summary{Name: "input", Text: "hello world"},
+		Time:         start.Add(time.Millisecond),
+	})
+	server := observer.StartToolCall(ctx, ToolCallStart{
+		Correlation:  Correlation{ObservationID: "server-call"},
+		ToolCallID:   "tool-call-1",
+		InputSummary: Summary{Name: "input", Text: "hello world"},
+		StartTime:    start.Add(2 * time.Millisecond),
+	})
+	server.Error(ToolCallError{
+		Err:            errSentinel{},
+		Classification: "tool_error",
+		Retryable:      true,
+		OutputSummary:  Summary{Name: "output", Text: "failed output"},
+		EndTime:        start.Add(1502 * time.Millisecond),
+	})
+	observer.ToolSettled(ctx, ToolSettled{
+		Correlation:    Correlation{ObservationID: "server-settled"},
+		ToolCallID:     "tool-call-1",
+		Status:         "failed",
+		Latency:        1500 * time.Millisecond,
+		LatencyKnown:   true,
+		OutputSummary:  Summary{Name: "output", Text: "failed output"},
+		Classification: "tool_error",
+		Retryable:      true,
+		Time:           start.Add(1503 * time.Millisecond),
+	})
+	observer.AGUIToolMaterialized(ctx, AGUIToolMaterialized{
+		Correlation:  Correlation{ObservationID: "agui-materialized"},
+		ToolCallID:   "agui-tool-call",
+		InputSummary: Summary{Name: "proposal", Text: "client payload"},
+		Time:         start.Add(2 * time.Second),
+	})
+	observer.AGUIToolSettled(ctx, AGUIToolSettled{
+		Correlation:    Correlation{ObservationID: "agui-settled"},
+		ToolCallID:     "agui-tool-call",
+		Status:         "canceled",
+		Classification: "canceled",
+		Retryable:      true,
+		Time:           start.Add(3 * time.Second),
+	})
+
+	snapshot := observer.Snapshot()
+	if snapshot.ExportCount != 6 || len(snapshot.Observations) != 6 {
+		t.Fatalf("snapshot count = exports:%d observations:%d, want 6/6", snapshot.ExportCount, len(snapshot.Observations))
+	}
+	for _, observation := range snapshot.Observations {
+		validateNormalizedToolObservation(t, observation)
+		if observation.Attributes["correlation.session_id"] != "session-1" ||
+			observation.Attributes["correlation.run_id"] != "run-1" ||
+			observation.Attributes["correlation.thread_id"] != "thread-1" ||
+			observation.Attributes["correlation.agui_run_id"] != "agui-run-1" {
+			t.Fatalf("%s correlation attrs = %#v", observation.ID, observation.Attributes)
+		}
+		if observation.Attributes["tool.name"] == "" {
+			t.Fatalf("%s missing fallback tool.name: %#v", observation.ID, observation.Attributes)
+		}
+		if observation.Attributes["tool.name"] != "tool_call" {
+			t.Fatalf("%s fallback tool.name = %q, want tool_call", observation.ID, observation.Attributes["tool.name"])
+		}
+	}
+
+	materialized := snapshot.Observations[1]
+	if materialized.Attributes["tool.input.summary"] != "hell" {
+		t.Fatalf("materialized input summary = %#v", materialized.Attributes)
+	}
+	assertPublicRedactionRecord(t, materialized.Redaction, "tool.input.summary.text", "summary_truncated")
+
+	serverCall := snapshot.Observations[2]
+	if serverCall.Status != "error" || serverCall.Attributes["tool.status"] != "failed" ||
+		serverCall.Attributes["tool.latency.ms"] != int64(1500) ||
+		serverCall.Attributes["error.classification"] != "tool_error" ||
+		serverCall.Attributes["tool.output.summary"] != "fail" {
+		t.Fatalf("server call attrs = status:%q attrs:%#v", serverCall.Status, serverCall.Attributes)
+	}
+	assertPublicRedactionRecord(t, serverCall.Redaction, "tool.output.summary.text", "summary_truncated")
+
+	serverSettled := snapshot.Observations[3]
+	if serverSettled.Status != "error" ||
+		serverSettled.Attributes["tool.status"] != "failed" ||
+		serverSettled.Attributes["tool.kind"] != "server" ||
+		serverSettled.Attributes["error.retryable"] != true {
+		t.Fatalf("server settled = status:%q attrs:%#v", serverSettled.Status, serverSettled.Attributes)
+	}
+
+	aguiMaterialized := snapshot.Observations[4]
+	if aguiMaterialized.Attributes["tool.kind"] != "client_proposed" ||
+		aguiMaterialized.Attributes["tool.call_id"] != "agui-tool-call" {
+		t.Fatalf("agui materialized attrs = %#v", aguiMaterialized.Attributes)
+	}
+
+	aguiSettled := snapshot.Observations[5]
+	if aguiSettled.Status != "canceled" ||
+		aguiSettled.Attributes["tool.status"] != "canceled" ||
+		aguiSettled.Attributes["tool.kind"] != "client_proposed" ||
+		aguiSettled.Attributes["error.retryable"] != false ||
+		aguiSettled.Attributes["error.canceled"] != true {
+		t.Fatalf("agui settled = status:%q attrs:%#v", aguiSettled.Status, aguiSettled.Attributes)
+	}
+}
+
 func TestStartToolCallEndExportsLatencySummariesAndCorrelation(t *testing.T) {
 	observer := New(Config{
 		Redaction: RedactionOptions{CaptureInputSummary: true, CaptureOutputSummary: true, MaxSummaryBytes: 4},
@@ -234,6 +357,66 @@ func TestStartToolCallEndExportsLatencySummariesAndCorrelation(t *testing.T) {
 	call.End(ToolCallEnd{EndTime: start.Add(time.Hour)})
 	if snapshot := observer.Snapshot(); snapshot.ExportCount != 1 || len(snapshot.Observations) != 1 {
 		t.Fatalf("second End exported again: %#v", snapshot)
+	}
+}
+
+func validateNormalizedToolObservation(t *testing.T, observation Observation) {
+	t.Helper()
+	switch observation.Kind {
+	case "tool.registered", "tool.materialized", "tool.settled":
+		modelEvent := model.NewEvent(
+			model.ObservationIdentity{ID: observation.ID, ParentID: observation.ParentID, TraceID: observation.TraceID},
+			model.EventName(observation.Kind),
+			observation.Timestamp,
+		)
+		modelEvent.Status = model.Status(observation.Status)
+		modelEvent.Attributes = model.Attributes(observation.Attributes)
+		if observation.Error != nil {
+			retryable := observation.Error.Retryable
+			dropped := observation.Error.Dropped
+			canceled, _ := observation.Attributes["error.canceled"].(bool)
+			modelEvent.Error = &model.ObservationError{
+				Operation:      observation.Error.Operation,
+				Classification: observation.Error.Classification,
+				Message:        observation.Error.Error(),
+				Retryable:      &retryable,
+				Canceled:       &canceled,
+				Dropped:        &dropped,
+			}
+		}
+		if err := modelEvent.Validate(); err != nil {
+			t.Fatalf("normalized event validation for %s failed: %v", observation.Kind, err)
+		}
+	case "tool_call":
+		modelSpan := model.NewSpan(
+			model.ObservationIdentity{ID: observation.ID, ParentID: observation.ParentID, TraceID: observation.TraceID},
+			model.SpanKind(observation.Kind),
+			observation.Name,
+			observation.Timestamp,
+		)
+		modelSpan.Status = model.Status(observation.Status)
+		modelSpan.Attributes = model.Attributes(observation.Attributes)
+		if observation.DurationKnown {
+			modelSpan.EndTime = observation.Timestamp.Add(observation.Duration).UTC()
+		}
+		if observation.Error != nil {
+			retryable := observation.Error.Retryable
+			dropped := observation.Error.Dropped
+			canceled, _ := observation.Attributes["error.canceled"].(bool)
+			modelSpan.Error = &model.ObservationError{
+				Operation:      observation.Error.Operation,
+				Classification: observation.Error.Classification,
+				Message:        observation.Error.Error(),
+				Retryable:      &retryable,
+				Canceled:       &canceled,
+				Dropped:        &dropped,
+			}
+		}
+		if err := modelSpan.Validate(); err != nil {
+			t.Fatalf("normalized span validation for %s failed: %v", observation.Kind, err)
+		}
+	default:
+		t.Fatalf("unexpected tool observation kind %q", observation.Kind)
 	}
 }
 
