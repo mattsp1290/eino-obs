@@ -1,0 +1,46 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 28,
+  "branch": "bead-swarm/iteration-28-exporter-lifecycle-backpressure",
+  "slug": "exporter-lifecycle-backpressure",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.53"],
+  "beads_done": ["eino-obs-6on.53"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./exporter/datadog: pass",
+    "go test ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Both initial reviewers requested preserving the public operation label when Flush or Shutdown drains fail.",
+    "Updated drain sends to pass through export, flush, or shutdown instead of hardcoding export.",
+    "A focused re-review then requested the same operation-label fix for pending redaction failures during Flush or Shutdown.",
+    "Updated pending payload preparation to use the public drain operation for redaction errors and added a regression using private redaction options for testability.",
+    "Focused re-reviews approved all operation-label fixes with no remaining blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "flush-shutdown-contract",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-28-exporter-lifecycle-backpressure-2026-06-26/flush-shutdown-contract/07-re-review.md"
+    },
+    {
+      "reviewer": "queue-backpressure",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-28-exporter-lifecycle-backpressure-2026-06-26/queue-backpressure/06-re-review.md"
+    }
+  ],
+  "completed_at": "2026-06-27T01:23:00Z",
+  "status": "complete"
+}
