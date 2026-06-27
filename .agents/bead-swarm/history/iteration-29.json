@@ -1,0 +1,46 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 29,
+  "branch": "bead-swarm/iteration-29-retry-compaction-events",
+  "slug": "retry-compaction-events",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.48"],
+  "beads_done": ["eino-obs-6on.48"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./internal/redaction: pass",
+    "go test ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial reviewers requested emitting retry classification under error.classification instead of retry.classification.",
+    "Schema/redaction review also requested shared downstream redaction recognition for compaction.summary.",
+    "Focused re-review then requested applying disabled summary capture to compaction.summary.fields.* as well as the base compaction.summary key.",
+    "Updated retry event metadata and redaction summary-family handling, with regressions for disabled compaction summary fields.",
+    "Focused re-reviews approved all fixes with no remaining blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "public-helper-api",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-29-retry-compaction-events-2026-06-26/public-helper-api/06-re-review.md"
+    },
+    {
+      "reviewer": "schema-redaction",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-29-retry-compaction-events-2026-06-26/schema-redaction/07-re-review.md"
+    }
+  ],
+  "completed_at": "2026-06-27T01:35:59Z",
+  "status": "complete"
+}
