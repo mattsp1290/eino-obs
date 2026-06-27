@@ -1,0 +1,45 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 33,
+  "branch": "bead-swarm/iteration-33-runnable-examples",
+  "slug": "runnable-examples",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.40"],
+  "beads_done": ["eino-obs-6on.40"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go run ./examples/no_network: pass",
+    "go run ./examples/datadog_fake_endpoint: pass",
+    "go test ./examples/...: pass",
+    "go test ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": false,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Runnable examples review approved the no-network and fake Datadog endpoint examples with no blocking findings.",
+    "No-credentials smoke review approved local go run and go test coverage, confirming the Datadog example uses an in-process fake intake."
+  ],
+  "reviews": [
+    {
+      "reviewer": "examples-runnable",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-33-runnable-examples-2026-06-26/examples-runnable/05-verdict.md"
+    },
+    {
+      "reviewer": "examples-smoke-no-credentials",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-33-runnable-examples-2026-06-26/examples-smoke-no-credentials/05-verdict.md"
+    }
+  ],
+  "completed_at": "2026-06-27T02:00:36Z",
+  "status": "complete"
+}
