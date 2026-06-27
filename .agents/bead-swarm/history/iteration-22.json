@@ -1,0 +1,44 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 22,
+  "branch": "bead-swarm/iteration-22-datadog-exporter-config",
+  "slug": "datadog-exporter-config",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.50"],
+  "beads_done": ["eino-obs-6on.50"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial config review requested explicit zero/false constructor overrides and custom HTTP client ownership handling.",
+    "Initial client-safety review requested custom HTTP client ownership handling and explicit ValidateCredentials behavior.",
+    "Updated config with pointer override fields for zero/false values, tracked exporter-owned clients, and made ValidateCredentials fail closed without network until live validation is implemented.",
+    "Focused re-reviews approved both blocker sets with no remaining blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "config-contract",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-22-datadog-exporter-config-2026-06-26/config-contract/06-re-review.md"
+    },
+    {
+      "reviewer": "client-credential-safety",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-22-datadog-exporter-config-2026-06-26/client-credential-safety/06-re-review.md"
+    }
+  ],
+  "completed_at": "2026-06-27T00:23:24Z",
+  "status": "complete"
+}
