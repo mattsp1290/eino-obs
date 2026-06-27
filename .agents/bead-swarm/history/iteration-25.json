@@ -1,0 +1,45 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 25,
+  "branch": "bead-swarm/iteration-25-exporter-credential-auth",
+  "slug": "exporter-credential-auth",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.54"],
+  "beads_done": ["eino-obs-6on.54"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./exporter/datadog: pass",
+    "go test ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Both initial reviewers requested the same fix: credential validation wrapped context.Background() with context.WithTimeout even when TimeoutOverride was explicitly zero.",
+    "Updated credential validation to add a timeout context only when the resolved timeout is positive.",
+    "Added a fake-endpoint regression test proving ValidateCredentials works with TimeoutOverride: Duration(0).",
+    "Focused re-reviews approved the zero-timeout fix with no remaining blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "credential-auth",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-25-exporter-credential-auth-2026-06-26/credential-auth/06-re-review.md"
+    },
+    {
+      "reviewer": "failure-surface-auth",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-25-exporter-credential-auth-2026-06-26/failure-surface-auth/06-re-review.md"
+    }
+  ],
+  "completed_at": "2026-06-27T00:53:44Z",
+  "status": "complete"
+}
