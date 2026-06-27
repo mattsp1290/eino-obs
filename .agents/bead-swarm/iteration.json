@@ -1,0 +1,13 @@
+{
+  "iteration": 59,
+  "branch": "bead-swarm/iteration-59-prepare-changelog-and-v0-1-0-release-not",
+  "slug": "prepare-changelog-and-v0-1-0-release-not",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "selected_beads": [
+    "eino-obs-6on.41"
+  ],
+  "beads_done_pending_close": [],
+  "beads_blocked": [],
+  "beads_partial": []
+}
