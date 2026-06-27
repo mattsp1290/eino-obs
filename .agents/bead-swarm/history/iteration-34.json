@@ -1,0 +1,46 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 34,
+  "branch": "bead-swarm/iteration-34-examples-smoke-verification",
+  "slug": "examples-smoke-verification",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Verification-only bead; runnable examples were already merged, and independent Codex reviewer subagents confirmed no additional code changes were required.",
+  "selected_beads": ["eino-obs-6on.61"],
+  "beads_done": ["eino-obs-6on.61"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go run ./examples/no_network: pass",
+    "go run ./examples/datadog_fake_endpoint: pass",
+    "go test ./examples/...: pass",
+    "go test ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": false,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "First smoke verifier approved env-unset go run and go test execution for both examples.",
+    "Second smoke verifier approved local execution and confirmed the Datadog-compatible example uses httptest.NewServer with Endpoint set to the local fake endpoint.",
+    "Both reviewers stated no code changes were required beyond closing the verification bead."
+  ],
+  "reviews": [
+    {
+      "reviewer": "example-smoke-verifier-a",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-34-examples-smoke-verification-2026-06-26/example-smoke-verifier-a/05-verdict.md"
+    },
+    {
+      "reviewer": "example-smoke-verifier-b",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-34-examples-smoke-verification-2026-06-26/example-smoke-verifier-b/05-verdict.md"
+    }
+  ],
+  "completed_at": "2026-06-27T02:06:20Z",
+  "status": "complete"
+}
