@@ -1,0 +1,47 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 36,
+  "branch": "bead-swarm/iteration-36-exporter-http-tests-evidence",
+  "slug": "exporter-http-tests-evidence",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "already-satisfied single-bead evidence iteration implemented directly by parent; independent reviewer subagents were used for review",
+  "selected_beads": ["eino-obs-6on.31"],
+  "beads_done": ["eino-obs-6on.31"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./exporter/datadog -run 'Test(ExportPostsMappedPayload|ValidateCredentialsClassifiesAuth|ExportClassifiesHTTPStatus|ExportRetriesRetryableStatusWithBackoff|ExportStopsAfterRetryExhaustion|ExportStopsWhenRetrySleepIsCanceled|FlushDeliversPendingRetryableExport|FlushCanceledPreservesPendingRetryableExport|ShutdownDrainsPendingAndRejectsNewExports|FailedShutdownRetainsErrorAndDoesNotRetryOnFlush)$': pass",
+    "go test ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [],
+  "already_satisfied_evidence": [
+    "TestExportPostsMappedPayload covers real exporter request metadata and mapped payloads through httptest.",
+    "TestValidateCredentialsClassifiesAuth and TestExportClassifiesHTTPStatus cover auth and status failure classification without live credentials.",
+    "TestExportRetriesRetryableStatusWithBackoff, TestExportStopsAfterRetryExhaustion, and TestExportStopsWhenRetrySleepIsCanceled cover retry behavior against local fake HTTP endpoints.",
+    "TestFlushDeliversPendingRetryableExport and TestFlushCanceledPreservesPendingRetryableExport cover flush behavior for pending retryable exports.",
+    "TestShutdownDrainsPendingAndRejectsNewExports and TestFailedShutdownRetainsErrorAndDoesNotRetryOnFlush cover shutdown behavior.",
+    "Relevant tests use httptest/local transports and clearEnv; go test ./... passed without live Datadog credentials."
+  ],
+  "reviews": [
+    {
+      "reviewer": "exporter-coverage-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-36-exporter-http-tests-evidence-2026-06-26/exporter-coverage-review/"
+    },
+    {
+      "reviewer": "no-live-network-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-36-exporter-http-tests-evidence-2026-06-26/no-live-network-review/"
+    }
+  ],
+  "status": "complete-existing"
+}
