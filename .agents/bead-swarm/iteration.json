@@ -1,0 +1,11 @@
+{
+  "iteration": 49,
+  "branch": "bead-swarm/iteration-49-normalized-shape-tests",
+  "slug": "normalized-shape-tests",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "selected_beads": ["eino-obs-6on.32"],
+  "beads_done_pending_close": [],
+  "beads_blocked": [],
+  "beads_partial": []
+}
