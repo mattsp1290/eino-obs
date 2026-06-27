@@ -125,6 +125,24 @@ func ApplyAttributes(attrs model.Attributes, opts Options) (model.Attributes, []
 			}
 			continue
 		}
+		if name, ok := summaryFieldNameFromAttribute(key); ok {
+			if isSensitiveName(name) {
+				records = append(records, omitRecord(key, keyOmissionReason(name), byteLen(value)))
+				continue
+			}
+			if len([]byte(name)) > MaxNameBytes {
+				records = append(records, omitRecord(key, ReasonFieldLimitExceeded, byteLen(value)))
+				continue
+			}
+			if text, ok := value.(string); ok {
+				redacted, record := boundedString(key, text, maxSummaryBytes(opts), ReasonSummaryTruncated)
+				out[key] = redacted
+				if record != nil {
+					records = append(records, *record)
+				}
+				continue
+			}
+		}
 		if shouldOmitRawAttribute(key) {
 			records = append(records, omitRecord(key, keyOmissionReason(key), byteLen(value)))
 			continue
@@ -335,6 +353,20 @@ func summarySideForAttribute(key string) (SummarySide, bool) {
 	}
 }
 
+func summaryFieldNameFromAttribute(key string) (string, bool) {
+	trimmed := strings.TrimSpace(key)
+	const dotted = ".summary.fields."
+	if index := strings.Index(trimmed, dotted); index >= 0 {
+		return strings.TrimSpace(trimmed[index+len(dotted):]), true
+	}
+	canonical := canonicalName(trimmed)
+	const normalized = "_summary_fields_"
+	if index := strings.Index(canonical, normalized); index >= 0 {
+		return strings.TrimSpace(canonical[index+len(normalized):]), true
+	}
+	return "", false
+}
+
 func metadataNameFromAttribute(key string) (string, bool) {
 	trimmed := strings.TrimSpace(key)
 	if strings.HasPrefix(trimmed, "metadata.") {
@@ -365,6 +397,9 @@ func shouldOmitRawAttribute(key string) bool {
 	canonical := canonicalName(key)
 	if isEncryptedReasoningCanonical(canonical) {
 		return true
+	}
+	if strings.HasPrefix(canonical, "tool_input_summary_") {
+		return false
 	}
 	for _, prefix := range []string{
 		"prompt_", "model_input_", "model_output_", "tool_input_",

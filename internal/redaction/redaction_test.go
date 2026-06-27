@@ -146,6 +146,8 @@ func TestApplySpanOmitsRawFieldsAndRedactsEvents(t *testing.T) {
 	span.SetAttr("genai.request.summary", "hello")
 	span.SetAttr("metadata.encrypted reasoning", "ciphertext")
 	span.SetAttr("tool.input.summary", "query")
+	span.SetAttr("tool.input.summary.name", "query")
+	span.SetAttr("tool.input.summary.fields.kind", "web")
 	event := model.NewEvent(model.ObservationIdentity{ID: "event-1", ParentID: "span-1", TraceID: "trace-1"}, model.EventStreamChunk, time.Now())
 	event.SetAttr("stream.chunk.index", int64(0))
 	event.SetAttr("stream.chunk.summary", "delta")
@@ -163,6 +165,12 @@ func TestApplySpanOmitsRawFieldsAndRedactsEvents(t *testing.T) {
 	}
 	if got := redacted.Attributes["tool.input.summary"]; got != "quer" {
 		t.Fatalf("tool input summary = %q, want quer", got)
+	}
+	if got := redacted.Attributes["tool.input.summary.name"]; got != "query" {
+		t.Fatalf("tool input summary name = %q, want query", got)
+	}
+	if got := redacted.Attributes["tool.input.summary.fields.kind"]; got != "web" {
+		t.Fatalf("tool input summary field = %q, want web", got)
 	}
 	if _, ok := redacted.Attributes["metadata.encrypted reasoning"]; ok {
 		t.Fatalf("encrypted reasoning metadata was retained")
