@@ -1,0 +1,13 @@
+{
+  "iteration": 60,
+  "branch": "bead-swarm/iteration-60-define-first-release-tagging-and-eino-ag",
+  "slug": "define-first-release-tagging-and-eino-ag",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "selected_beads": [
+    "eino-obs-6on.13"
+  ],
+  "beads_done_pending_close": [],
+  "beads_blocked": [],
+  "beads_partial": []
+}
