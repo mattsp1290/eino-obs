@@ -1,0 +1,48 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 48,
+  "branch": "bead-swarm/iteration-48-public-helper-tests",
+  "slug": "public-helper-tests",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Parent implemented the selected focused test bead directly and used two independent reviewer subagents.",
+  "selected_beads": ["eino-obs-6on.56"],
+  "beads_done": ["eino-obs-6on.56"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "implementation_summary": [
+    "Strengthened public session helper tests by validating exported observations against the normalized span model.",
+    "Strengthened public run helper tests for session-to-run hierarchy, deterministic latency, correlation propagation, and terminal error/cancellation fields.",
+    "Relied on existing model_call_test.go coverage for non-streaming model-call shape, correlation, token usage, latency, retry, error, and cancellation behavior."
+  ],
+  "validation": [
+    "go test ./...: pass",
+    "go build ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [],
+  "reviews": [
+    {
+      "reviewer": "session-run-normalization-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-48-public-helper-tests-2026-06-27/session-run-normalization-review/04-action-items.md"
+    },
+    {
+      "reviewer": "public-helper-acceptance-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-48-public-helper-tests-2026-06-27/public-helper-acceptance-review/04-action-items.md",
+      "non_blocking_suggestions": [
+        "Consider sharing normalized public-observation validation helpers if more public helper tests add the same model validation bridge.",
+        "Consider asserting model-call error-path duration and genai.latency.total_ms in a future strengthening pass."
+      ]
+    }
+  ],
+  "status": "complete"
+}
