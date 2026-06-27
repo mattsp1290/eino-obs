@@ -1,0 +1,13 @@
+{
+  "iteration": 27,
+  "issue": "eino-obs-6on.52",
+  "title": "Implement exporter batch queue and payload limit handling",
+  "branch": "bead-swarm/iteration-27-exporter-batch-limits",
+  "status": "in_progress",
+  "started_at": "2026-06-26",
+  "scope": [
+    "Datadog exporter queueing and batch sizing",
+    "payload size limits",
+    "deterministic overflow and backpressure behavior"
+  ]
+}
