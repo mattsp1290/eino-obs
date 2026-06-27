@@ -125,7 +125,11 @@ func ApplyAttributes(attrs model.Attributes, opts Options) (model.Attributes, []
 			}
 			continue
 		}
-		if name, ok := summaryFieldNameFromAttribute(key); ok {
+		if side, name, ok := summaryFieldNameFromAttribute(key); ok {
+			if !summaryEnabled(side, opts) {
+				records = append(records, model.RedactionRecord{FieldPath: key, Reason: ReasonSummaryDisabled})
+				continue
+			}
 			if isSensitiveName(name) {
 				records = append(records, omitRecord(key, keyOmissionReason(name), byteLen(value)))
 				continue
@@ -344,7 +348,7 @@ func summaryEnabled(side SummarySide, opts Options) bool {
 
 func summarySideForAttribute(key string) (SummarySide, bool) {
 	switch canonicalName(key) {
-	case "genai_request_summary", "tool_input_summary":
+	case "genai_request_summary", "tool_input_summary", "compaction_summary":
 		return InputSummary, true
 	case "genai_response_summary", "stream_chunk_summary", "tool_output_summary":
 		return OutputSummary, true
@@ -353,18 +357,24 @@ func summarySideForAttribute(key string) (SummarySide, bool) {
 	}
 }
 
-func summaryFieldNameFromAttribute(key string) (string, bool) {
+func summaryFieldNameFromAttribute(key string) (SummarySide, string, bool) {
 	trimmed := strings.TrimSpace(key)
 	const dotted = ".summary.fields."
 	if index := strings.Index(trimmed, dotted); index >= 0 {
-		return strings.TrimSpace(trimmed[index+len(dotted):]), true
+		side, ok := summaryFieldSide(trimmed[:index+len(".summary")])
+		return side, strings.TrimSpace(trimmed[index+len(dotted):]), ok
 	}
 	canonical := canonicalName(trimmed)
 	const normalized = "_summary_fields_"
 	if index := strings.Index(canonical, normalized); index >= 0 {
-		return strings.TrimSpace(canonical[index+len(normalized):]), true
+		side, ok := summaryFieldSide(strings.TrimSuffix(canonical[:index+len("_summary")], "_"))
+		return side, strings.TrimSpace(canonical[index+len(normalized):]), ok
 	}
-	return "", false
+	return "", "", false
+}
+
+func summaryFieldSide(summaryKey string) (SummarySide, bool) {
+	return summarySideForAttribute(summaryKey)
 }
 
 func metadataNameFromAttribute(key string) (string, bool) {

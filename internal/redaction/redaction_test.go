@@ -148,6 +148,7 @@ func TestApplySpanOmitsRawFieldsAndRedactsEvents(t *testing.T) {
 	span.SetAttr("tool.input.summary", "query")
 	span.SetAttr("tool.input.summary.name", "query")
 	span.SetAttr("tool.input.summary.fields.kind", "web")
+	span.SetAttr("compaction.summary", "packed")
 	event := model.NewEvent(model.ObservationIdentity{ID: "event-1", ParentID: "span-1", TraceID: "trace-1"}, model.EventStreamChunk, time.Now())
 	event.SetAttr("stream.chunk.index", int64(0))
 	event.SetAttr("stream.chunk.summary", "delta")
@@ -172,6 +173,9 @@ func TestApplySpanOmitsRawFieldsAndRedactsEvents(t *testing.T) {
 	if got := redacted.Attributes["tool.input.summary.fields.kind"]; got != "web" {
 		t.Fatalf("tool input summary field = %q, want web", got)
 	}
+	if got := redacted.Attributes["compaction.summary"]; got != "pack" {
+		t.Fatalf("compaction summary = %q, want pack", got)
+	}
 	if _, ok := redacted.Attributes["metadata.encrypted reasoning"]; ok {
 		t.Fatalf("encrypted reasoning metadata was retained")
 	}
@@ -184,6 +188,27 @@ func TestApplySpanOmitsRawFieldsAndRedactsEvents(t *testing.T) {
 	assertRecord(t, redacted.Redaction, "prompt.text", ReasonDefaultOmitted, len("raw prompt"), 0)
 	assertRecord(t, redacted.Redaction, "metadata.encrypted reasoning", ReasonEncryptedReasoningForbidden, len("ciphertext"), 0)
 	assertRecord(t, redacted.Events[0].Redaction, "stream.chunk.summary", ReasonSummaryDisabled, 0, 0)
+}
+
+func TestApplySpanDisablesCompactionSummaryFields(t *testing.T) {
+	start := time.Now()
+	span := model.NewSpan(model.ObservationIdentity{ID: "span-1", TraceID: "trace-1"}, model.SpanKindRun, "run", start)
+	span.End(start.Add(time.Millisecond), model.StatusOK)
+	span.SetAttr("compaction.summary", "packed")
+	span.SetAttr("compaction.summary.fields.safe", "value")
+
+	redacted, err := ApplySpan(span, Options{})
+	if err != nil {
+		t.Fatalf("ApplySpan() error = %v", err)
+	}
+	if _, ok := redacted.Attributes["compaction.summary"]; ok {
+		t.Fatalf("disabled compaction summary was retained: %#v", redacted.Attributes)
+	}
+	if _, ok := redacted.Attributes["compaction.summary.fields.safe"]; ok {
+		t.Fatalf("disabled compaction summary field was retained: %#v", redacted.Attributes)
+	}
+	assertRecord(t, redacted.Redaction, "compaction.summary", ReasonSummaryDisabled, 0, 0)
+	assertRecord(t, redacted.Redaction, "compaction.summary.fields.safe", ReasonSummaryDisabled, 0, 0)
 }
 
 func TestApplyAttributesCanonicalMetadataAndRawPayloadOmission(t *testing.T) {
