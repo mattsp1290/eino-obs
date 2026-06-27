@@ -1,0 +1,52 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 60,
+  "branch": "bead-swarm/iteration-60-define-first-release-tagging-and-eino-ag",
+  "slug": "define-first-release-tagging-and-eino-ag",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "orchestrator-subagent",
+  "degraded_reason": null,
+  "selected_beads": [
+    "eino-obs-6on.13"
+  ],
+  "beads_done": [
+    "eino-obs-6on.13"
+  ],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "implementation_summary": [
+    "Updated docs/prompts/docs/release-pinning.md with the first-release pinning decision.",
+    "Documented v0.1.0 as the preferred semver tag and full 40-character commit SHA as the temporary pre-tag fallback.",
+    "Defined separate final-tag and temporary-commit YAML response records for eino-agent, including go get commands, source commit recording, release notes, and pseudo-version handling."
+  ],
+  "validation": [
+    "make check: pass",
+    "go build ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": false,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [],
+  "suggestion_summary": [],
+  "review_fix_summary": [
+    "Split the YAML response into final tagged and temporary commit-pin examples.",
+    "Made the temporary commit example record the Go pseudo-version returned by go list -m while preserving the source commit SHA."
+  ],
+  "reviews": [
+    {
+      "reviewer": "pinning-contract-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-60-define-first-release-tagging-and-eino-ag-2026-06-27/pinning-contract-review/04-action-items.md"
+    },
+    {
+      "reviewer": "consumer-response-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-60-define-first-release-tagging-and-eino-ag-2026-06-27/consumer-response-review/04-action-items.md"
+    }
+  ],
+  "status": "complete"
+}
