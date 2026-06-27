@@ -31,6 +31,12 @@ type TokenUsage struct {
 	TotalTokens       int64
 	ReasoningTokens   int64
 	CachedInputTokens int64
+
+	InputTokensKnown       bool
+	OutputTokensKnown      bool
+	TotalTokensKnown       bool
+	ReasoningTokensKnown   bool
+	CachedInputTokensKnown bool
 }
 
 type Summary struct {

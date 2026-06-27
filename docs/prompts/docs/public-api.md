@@ -59,6 +59,12 @@ type TokenUsage struct {
     TotalTokens int64
     ReasoningTokens int64
     CachedInputTokens int64
+
+    InputTokensKnown bool
+    OutputTokensKnown bool
+    TotalTokensKnown bool
+    ReasoningTokensKnown bool
+    CachedInputTokensKnown bool
 }
 
 type Summary struct {
@@ -282,6 +288,9 @@ call.End(einoobs.ModelCallEnd{
     OutputSummary: einoobs.Summary{Name: "assistant_response", Text: "short caller summary"},
 })
 ```
+
+Zero token counts are treated as unknown unless the matching `*Known` field is
+set, for example `TokenUsage{InputTokens: 0, InputTokensKnown: true}`.
 
 Model helpers should support provider, model, retry attempt, token usage,
 latency, cancellation, and error fields without depending on provider SDK
