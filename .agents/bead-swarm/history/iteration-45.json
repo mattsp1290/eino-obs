@@ -1,0 +1,51 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 45,
+  "branch": "bead-swarm/iteration-45-tool-integration",
+  "slug": "tool-integration",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Implemented one selected integration bead directly in parent after reading bead-swarm skill; two independent reviewer subagents and targeted re-reviews were used.",
+  "selected_beads": ["eino-obs-6on.22"],
+  "beads_done": ["eino-obs-6on.22"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "go build ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Fixed API cohesion finding: centralized omitted ToolName fallback and asserted the same fallback across registration, materialization, execution, settlement, and AG-UI paths."
+  ],
+  "reviews": [
+    {
+      "reviewer": "tool-schema-redaction-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-45-tool-integration-2026-06-27/tool-schema-redaction-review/04-action-items.md"
+    },
+    {
+      "reviewer": "tool-api-cohesion-review",
+      "verdict": "CHANGES_REQUESTED",
+      "artifact": "reviews/bead-swarm-iteration-45-tool-integration-2026-06-27/tool-api-cohesion-review/04-action-items.md"
+    },
+    {
+      "reviewer": "tool-schema-redaction-rereview",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-45-tool-integration-2026-06-27/tool-schema-redaction-rereview/04-action-items.md"
+    },
+    {
+      "reviewer": "tool-api-cohesion-rereview",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-45-tool-integration-2026-06-27/tool-api-cohesion-rereview/04-action-items.md"
+    }
+  ],
+  "status": "complete"
+}

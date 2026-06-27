@@ -118,7 +118,7 @@ func (o *Observer) ToolRegistered(ctx context.Context, event ToolRegistered) {
 		corr.ToolCallID = toolCallID
 	}
 	attrs := baseObservationAttributes(o, corr, cloneMetadata(event.Metadata))
-	addToolAttributes(attrs, event.ToolName, toolCallID, firstNonEmpty(event.ToolKind, "unknown"), "registered")
+	addToolAttributes(attrs, defaultToolName(event.ToolName), toolCallID, firstNonEmpty(event.ToolKind, "unknown"), "registered")
 	observation := toolEventObservation(corr, "tool.registered", observationTime(event.Time), attrs, nil)
 	exportObservation(context.WithoutCancel(ctx), o, observation)
 }
@@ -139,7 +139,7 @@ func (o *Observer) ToolMaterialized(ctx context.Context, event ToolMaterialized)
 		return
 	}
 	attrs := baseObservationAttributes(o, corr, cloneMetadata(event.Metadata))
-	addToolAttributes(attrs, event.ToolName, toolCallID, firstNonEmpty(event.ToolKind, "unknown"), "materialized")
+	addToolAttributes(attrs, defaultToolName(event.ToolName), toolCallID, firstNonEmpty(event.ToolKind, "unknown"), "materialized")
 
 	var records []RedactionRecord
 	summaryAttrs, summaryRecords := toolInputSummaryAttributes(o, event.InputSummary)
@@ -168,7 +168,7 @@ func (o *Observer) StartToolCall(ctx context.Context, start ToolCallStart) *Tool
 		return &ToolCall{ended: true}
 	}
 	attrs := baseObservationAttributes(o, corr, cloneMetadata(start.Metadata))
-	toolName := firstNonEmpty(start.ToolName, "tool_call")
+	toolName := defaultToolName(start.ToolName)
 	toolKind := firstNonEmpty(start.ToolKind, "server")
 	addToolAttributes(attrs, toolName, toolCallID, toolKind, "started")
 	var records []RedactionRecord
@@ -301,7 +301,7 @@ func (o *Observer) AGUIToolSettled(ctx context.Context, event AGUIToolSettled) {
 		return
 	}
 	attrs := baseObservationAttributes(o, corr, cloneMetadata(event.Metadata))
-	addToolAttributes(attrs, event.ToolName, toolCallID, "client_proposed", status)
+	addToolAttributes(attrs, defaultToolName(event.ToolName), toolCallID, "client_proposed", status)
 
 	observationStatus := "ok"
 	var obsErr *ObservationError
@@ -356,7 +356,7 @@ func (o *Observer) ToolSettled(ctx context.Context, event ToolSettled) {
 		return
 	}
 	attrs := baseObservationAttributes(o, corr, cloneMetadata(event.Metadata))
-	toolName := firstNonEmpty(event.ToolName, "tool_call")
+	toolName := defaultToolName(event.ToolName)
 	addToolAttributes(attrs, toolName, toolCallID, firstNonEmpty(event.ToolKind, "server"), status)
 	if event.LatencyKnown {
 		latency := event.Latency
@@ -407,6 +407,10 @@ func addToolAttributes(attrs map[string]any, name string, callID string, kind st
 	addStringAttr(attrs, "tool.call_id", callID)
 	addStringAttr(attrs, "tool.kind", kind)
 	addStringAttr(attrs, "tool.status", status)
+}
+
+func defaultToolName(name string) string {
+	return firstNonEmpty(name, "tool_call")
 }
 
 func aguiToolCorrelation(ctx context.Context, explicit Correlation, threadID string, aguiRunID string, toolCallID string) Correlation {
