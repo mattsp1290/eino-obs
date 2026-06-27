@@ -81,6 +81,113 @@ func TestSpanValidateRequiredAttributes(t *testing.T) {
 	}
 }
 
+func TestNormalizedShapeHierarchyCorrelationLatencyAndTokenUsage(t *testing.T) {
+	start := time.Date(2026, 6, 27, 4, 30, 0, 0, time.FixedZone("offset", -4*60*60))
+	session := NewSpan(ObservationIdentity{ID: "session-obs", TraceID: "trace-1"}, SpanKindSession, "session", start)
+	session.SetAttr("correlation.session_id", "session-1")
+	session.End(start.Add(2*time.Second), StatusOK)
+
+	run := NewSpan(ObservationIdentity{ID: "run-obs", ParentID: "session-obs", TraceID: "trace-1"}, SpanKindRun, "run", start.Add(100*time.Millisecond))
+	run.SetAttr("correlation.session_id", "session-1")
+	run.SetAttr("correlation.run_id", "run-1")
+	run.End(start.Add(1900*time.Millisecond), StatusOK)
+
+	modelCall := NewSpan(ObservationIdentity{ID: "model-obs", ParentID: "run-obs", TraceID: "trace-1"}, SpanKindModelCall, "chat.completions", start.Add(200*time.Millisecond))
+	modelCall.SetAttr("correlation.session_id", "session-1")
+	modelCall.SetAttr("correlation.run_id", "run-1")
+	modelCall.SetAttr("genai.provider", "openai")
+	modelCall.SetAttr("genai.model", "gpt-example")
+	modelCall.SetAttr("genai.latency.total_ms", int64(1500))
+	modelCall.SetAttr("genai.retry.attempt", int64(2))
+	modelCall.SetAttr("genai.usage.input_tokens", int64(0))
+	modelCall.SetAttr("genai.usage.output_tokens", int64(40))
+	modelCall.SetAttr("genai.usage.total_tokens", int64(40))
+	modelCall.SetAttr("genai.usage.reasoning_tokens", int64(0))
+	modelCall.SetAttr("genai.usage.cached_input_tokens", int64(0))
+	modelCall.End(start.Add(1700*time.Millisecond), StatusOK)
+
+	stream := NewSpan(ObservationIdentity{ID: "stream-obs", ParentID: "run-obs", TraceID: "trace-1"}, SpanKindStream, "chat.stream", start.Add(300*time.Millisecond))
+	stream.SetAttr("correlation.session_id", "session-1")
+	stream.SetAttr("correlation.run_id", "run-1")
+	stream.SetAttr("genai.provider", "openai")
+	stream.SetAttr("genai.model", "gpt-example")
+	stream.SetAttr("genai.latency.first_token_ms", int64(125))
+	stream.SetAttr("genai.latency.total_ms", int64(1400))
+	stream.SetAttr("genai.usage.input_tokens", int64(0))
+	stream.SetAttr("genai.usage.output_tokens", int64(40))
+	stream.SetAttr("genai.usage.total_tokens", int64(40))
+	firstToken := NewEvent(ObservationIdentity{ID: "first-token", ParentID: "stream-obs", TraceID: "trace-1"}, EventStreamFirstTok, start.Add(425*time.Millisecond))
+	firstToken.SetAttr("genai.latency.first_token_ms", int64(125))
+	stream.AddEvent(firstToken)
+	stream.End(start.Add(1700*time.Millisecond), StatusOK)
+
+	for _, span := range []Span{session, run, modelCall, stream} {
+		if err := span.Validate(); err != nil {
+			t.Fatalf("%s Validate() error = %v", span.Identity.ID, err)
+		}
+		if span.StartTime.Location() != time.UTC {
+			t.Fatalf("%s start location = %v, want UTC", span.Identity.ID, span.StartTime.Location())
+		}
+	}
+	if run.Identity.ParentID != session.Identity.ID ||
+		modelCall.Identity.ParentID != run.Identity.ID ||
+		stream.Identity.ParentID != run.Identity.ID {
+		t.Fatalf("hierarchy = session:%q run parent:%q model parent:%q stream parent:%q", session.Identity.ID, run.Identity.ParentID, modelCall.Identity.ParentID, stream.Identity.ParentID)
+	}
+	assertAttr(t, session.Attributes, "correlation.session_id", "session-1")
+	assertAttr(t, run.Attributes, "correlation.session_id", "session-1")
+	assertAttr(t, run.Attributes, "correlation.run_id", "run-1")
+	if got, ok := run.DurationMS(); !ok || got != 1800 {
+		t.Fatalf("run DurationMS() = %d, %v; want 1800, true", got, ok)
+	}
+	if got, ok := modelCall.DurationMS(); !ok || got != 1500 {
+		t.Fatalf("model DurationMS() = %d, %v; want 1500, true", got, ok)
+	}
+	if got, ok := stream.DurationMS(); !ok || got != 1400 {
+		t.Fatalf("stream DurationMS() = %d, %v; want 1400, true", got, ok)
+	}
+	for key, want := range map[string]any{
+		"correlation.session_id":          "session-1",
+		"correlation.run_id":              "run-1",
+		"genai.provider":                  "openai",
+		"genai.model":                     "gpt-example",
+		"genai.latency.total_ms":          int64(1500),
+		"genai.retry.attempt":             int64(2),
+		"genai.usage.input_tokens":        int64(0),
+		"genai.usage.output_tokens":       int64(40),
+		"genai.usage.total_tokens":        int64(40),
+		"genai.usage.reasoning_tokens":    int64(0),
+		"genai.usage.cached_input_tokens": int64(0),
+	} {
+		assertAttr(t, modelCall.Attributes, key, want)
+	}
+	for key, want := range map[string]any{
+		"correlation.session_id":       "session-1",
+		"correlation.run_id":           "run-1",
+		"genai.provider":               "openai",
+		"genai.model":                  "gpt-example",
+		"genai.latency.first_token_ms": int64(125),
+		"genai.latency.total_ms":       int64(1400),
+		"genai.usage.input_tokens":     int64(0),
+		"genai.usage.output_tokens":    int64(40),
+		"genai.usage.total_tokens":     int64(40),
+	} {
+		assertAttr(t, stream.Attributes, key, want)
+	}
+	if len(stream.Events) != 1 {
+		t.Fatalf("stream events = %d, want 1", len(stream.Events))
+	}
+	gotFirstToken := stream.Events[0]
+	if gotFirstToken.Name != EventStreamFirstTok ||
+		gotFirstToken.Status != "" ||
+		gotFirstToken.Identity.ParentID != stream.Identity.ID ||
+		gotFirstToken.Category != "stream" ||
+		gotFirstToken.Timestamp.Location() != time.UTC {
+		t.Fatalf("first token event shape = %#v", gotFirstToken)
+	}
+	assertAttr(t, gotFirstToken.Attributes, "genai.latency.first_token_ms", int64(125))
+}
+
 func TestEventValidate(t *testing.T) {
 	event := NewEvent(ObservationIdentity{ID: "event-1", ParentID: "span-1", TraceID: "trace-1"}, EventStreamChunk, time.Now())
 	event.SetAttr("stream.chunk.index", int64(0))
@@ -384,6 +491,13 @@ func containsError(err error, want string) bool {
 		}
 	}
 	return strings.Contains(err.Error(), want)
+}
+
+func assertAttr(t *testing.T, attrs Attributes, key string, want any) {
+	t.Helper()
+	if got := attrs[key]; got != want {
+		t.Fatalf("%s = %#v, want %#v; attrs=%#v", key, got, want, attrs)
+	}
 }
 
 func unwrapAll(err error) []error {
