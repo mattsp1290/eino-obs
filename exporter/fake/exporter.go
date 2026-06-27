@@ -15,6 +15,24 @@ type Snapshot = recorder.Snapshot
 type Config struct {
 	Redaction einoobs.RedactionOptions
 	Capacity  int
+	Failures  FailurePlan
+}
+
+type FailurePlan struct {
+	Export        *Failure
+	Flush         *Failure
+	Shutdown      *Failure
+	ExportRules   []Failure
+	FlushRules    []Failure
+	ShutdownRules []Failure
+}
+
+type Failure struct {
+	AtCall         int64
+	Classification string
+	Message        string
+	Retryable      bool
+	Dropped        bool
 }
 
 type Exporter struct {
@@ -29,6 +47,14 @@ func New(config Config) *Exporter {
 			MaxSummaryBytes:      config.Redaction.MaxSummaryBytes,
 		},
 		Capacity: config.Capacity,
+		Failures: internalrecorder.FailurePlan{
+			Export:        internalFailure(config.Failures.Export),
+			Flush:         internalFailure(config.Failures.Flush),
+			Shutdown:      internalFailure(config.Failures.Shutdown),
+			ExportRules:   internalFailures(config.Failures.ExportRules),
+			FlushRules:    internalFailures(config.Failures.FlushRules),
+			ShutdownRules: internalFailures(config.Failures.ShutdownRules),
+		},
 	})}
 }
 
@@ -57,3 +83,33 @@ func (e *Exporter) Reset() {
 }
 
 var _ einoobs.Exporter = (*Exporter)(nil)
+
+func internalFailure(failure *Failure) *internalrecorder.Failure {
+	if failure == nil {
+		return nil
+	}
+	return &internalrecorder.Failure{
+		AtCall:         failure.AtCall,
+		Classification: failure.Classification,
+		Message:        failure.Message,
+		Retryable:      failure.Retryable,
+		Dropped:        failure.Dropped,
+	}
+}
+
+func internalFailures(failures []Failure) []internalrecorder.Failure {
+	if failures == nil {
+		return nil
+	}
+	out := make([]internalrecorder.Failure, len(failures))
+	for i := range failures {
+		out[i] = internalrecorder.Failure{
+			AtCall:         failures[i].AtCall,
+			Classification: failures[i].Classification,
+			Message:        failures[i].Message,
+			Retryable:      failures[i].Retryable,
+			Dropped:        failures[i].Dropped,
+		}
+	}
+	return out
+}
