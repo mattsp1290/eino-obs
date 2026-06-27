@@ -1,0 +1,45 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 31,
+  "branch": "bead-swarm/iteration-31-exporter-retry-config-integration",
+  "slug": "exporter-retry-config-integration",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Aggregate verification bead; dependent implementation beads were already merged, and independent Codex reviewer subagents confirmed no additional code changes were required.",
+  "selected_beads": ["eino-obs-6on.30"],
+  "beads_done": ["eino-obs-6on.30"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./exporter/datadog -run 'Test(New|Endpoint|Validate|ExportClassifies|ExportRetries|ExportStops|Flush|Shutdown|ExplicitZero)' -count=1: pass",
+    "go test ./exporter/datadog: pass",
+    "go test ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": false,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Config/auth integration review approved endpoint/site options, credential validation, auth/config classification, and no secret leakage coverage.",
+    "Retry/backoff integration review approved bounded retry behavior, retryable/non-retryable handling, and backoff tests.",
+    "Both reviewers stated no code changes were required beyond closing the aggregate bead."
+  ],
+  "reviews": [
+    {
+      "reviewer": "exporter-config-auth-integration",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-31-exporter-retry-config-integration-2026-06-26/exporter-config-auth-integration/05-verdict.md"
+    },
+    {
+      "reviewer": "exporter-retry-backoff-integration",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-31-exporter-retry-config-integration-2026-06-26/exporter-retry-backoff-integration/05-verdict.md"
+    }
+  ],
+  "completed_at": "2026-06-27T01:47:41Z",
+  "status": "complete"
+}
