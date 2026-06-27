@@ -129,6 +129,27 @@ func TestInvalidConfigIsObservationErrorAndDoesNotLeakAPIKey(t *testing.T) {
 	}
 }
 
+func TestInvalidEnvironmentConfigIsObservationError(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("DD_API_KEY", "super-secret")
+	t.Setenv("EINO_OBS_EXPORT_BATCH_SIZE", "not-an-int")
+
+	_, err := New(Config{MLApp: "app"})
+	if err == nil {
+		t.Fatalf("New() error = nil")
+	}
+	var obsErr einoobs.ObservationError
+	if !errors.As(err, &obsErr) {
+		t.Fatalf("error = %T, want ObservationError", err)
+	}
+	if obsErr.Operation != "credential_validation" || obsErr.Classification != "invalid_config" || obsErr.Retryable || obsErr.Dropped {
+		t.Fatalf("ObservationError = %#v", obsErr)
+	}
+	if strings.Contains(err.Error(), "super-secret") {
+		t.Fatalf("error leaked API key: %v", err)
+	}
+}
+
 func TestMissingAPIKeyAllowedOnlyForLocalhostTesting(t *testing.T) {
 	clearEnv(t)
 	if _, err := New(Config{MLApp: "app"}); err == nil {
@@ -147,6 +168,27 @@ func TestMissingAPIKeyAllowedOnlyForLocalhostTesting(t *testing.T) {
 		AllowMissingAPIKeyForTesting: true,
 	}); err != nil {
 		t.Fatalf("New() localhost missing key error = %v", err)
+	}
+}
+
+func TestLocalhostEndpointAllowsMissingAPIKeyWithoutLiveCredentials(t *testing.T) {
+	clearEnv(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	exp, err := New(Config{
+		Endpoint:                     server.URL,
+		MLApp:                        "app",
+		AllowMissingAPIKeyForTesting: true,
+		MaxRetriesOverride:           Int(0),
+	})
+	if err != nil {
+		t.Fatalf("New() localhost missing key error = %v", err)
+	}
+	if err := exp.Export(t.Context(), []einoobs.Observation{endedRunObservation()}); err != nil {
+		t.Fatalf("Export() localhost missing key error = %v", err)
 	}
 }
 
