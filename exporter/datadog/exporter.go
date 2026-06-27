@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -256,6 +257,25 @@ func (e *Exporter) postPayload(ctx context.Context, payload payload, operation s
 		}
 		body = compressed.Bytes()
 	}
+	var lastErr error
+	attempts := e.config.MaxRetries + 1
+	for attempt := 1; attempt <= attempts; attempt++ {
+		lastErr = e.sendPayload(ctx, body, operation)
+		if lastErr == nil {
+			return nil
+		}
+		var obsErr einoobs.ObservationError
+		if !errors.As(lastErr, &obsErr) || !obsErr.Retryable || attempt == attempts {
+			return lastErr
+		}
+		if err := e.sleepBeforeRetry(ctx, operation, attempt); err != nil {
+			return err
+		}
+	}
+	return lastErr
+}
+
+func (e *Exporter) sendPayload(ctx context.Context, body []byte, operation string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.config.Endpoint, bytes.NewReader(body))
 	if err != nil {
 		return observationError(operation, "invalid_config", err, false, true)
@@ -282,12 +302,57 @@ func (e *Exporter) postPayload(ctx context.Context, payload payload, operation s
 	return observationError(operation, classification, fmt.Errorf("Datadog intake returned HTTP %d", resp.StatusCode), retryable, dropped)
 }
 
+func (e *Exporter) sleepBeforeRetry(ctx context.Context, operation string, retryIndex int) error {
+	delay := e.retryDelay(retryIndex)
+	if delay <= 0 {
+		return nil
+	}
+	sleeper := e.config.Sleeper
+	if sleeper == nil {
+		sleeper = realSleeper{}
+	}
+	if err := sleeper.Sleep(ctx, delay); err != nil {
+		return observationError(operation, classifyContextError(err), err, false, false)
+	}
+	return nil
+}
+
+func (e *Exporter) retryDelay(retryIndex int) time.Duration {
+	if e.config.RetryBaseDelay <= 0 {
+		return 0
+	}
+	delay := e.config.RetryBaseDelay
+	for i := 1; i < retryIndex; i++ {
+		if e.config.RetryMaxDelay > 0 && delay >= e.config.RetryMaxDelay/2 {
+			delay = e.config.RetryMaxDelay
+			break
+		}
+		delay *= 2
+	}
+	if e.config.RetryMaxDelay > 0 && delay > e.config.RetryMaxDelay {
+		delay = e.config.RetryMaxDelay
+	}
+	jitterLimit := delay / 2
+	if jitterLimit <= 0 {
+		return delay
+	}
+	seed := e.config.RetryJitterSeed
+	if seed == 0 {
+		seed = time.Now().UnixNano()
+	}
+	jitter := time.Duration(rand.New(rand.NewSource(seed + int64(retryIndex))).Int63n(int64(jitterLimit) + 1))
+	if e.config.RetryMaxDelay > 0 && delay+jitter > e.config.RetryMaxDelay {
+		return e.config.RetryMaxDelay
+	}
+	return delay + jitter
+}
+
 func classifyTransportError(ctx context.Context, err error) (string, bool, bool) {
 	if errors.Is(ctx.Err(), context.Canceled) {
 		return "canceled", false, false
 	}
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return "timeout", true, false
+		return "timeout", false, false
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
@@ -319,6 +384,16 @@ func classifyStatus(status int) (string, bool, bool) {
 	}
 }
 
+func classifyContextError(err error) string {
+	if errors.Is(err, context.Canceled) {
+		return "canceled"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	return "exporter_failure"
+}
+
 func observationError(operation string, classification string, err error, retryable bool, dropped bool) einoobs.ObservationError {
 	return einoobs.ObservationError{
 		Operation:      operation,
@@ -326,6 +401,19 @@ func observationError(operation string, classification string, err error, retrya
 		Err:            err,
 		Retryable:      retryable,
 		Dropped:        dropped,
+	}
+}
+
+type realSleeper struct{}
+
+func (realSleeper) Sleep(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 

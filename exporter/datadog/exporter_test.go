@@ -2,6 +2,7 @@ package datadog
 
 import (
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -512,7 +513,7 @@ func TestExportClassifiesHTTPStatus(t *testing.T) {
 				w.WriteHeader(tt.status)
 			}))
 			defer server.Close()
-			exp, err := New(Config{APIKey: "key", Endpoint: server.URL, MLApp: "app"})
+			exp, err := New(Config{APIKey: "key", Endpoint: server.URL, MLApp: "app", MaxRetriesOverride: Int(0)})
 			if err != nil {
 				t.Fatalf("New() error = %v", err)
 			}
@@ -544,10 +545,11 @@ func TestExportClassifiesTransportErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			exp, err := New(Config{
-				APIKey:     "key",
-				Endpoint:   "https://example.test",
-				MLApp:      "app",
-				HTTPClient: &http.Client{Transport: errorTransport{err: tt.err}},
+				APIKey:             "key",
+				Endpoint:           "https://example.test",
+				MLApp:              "app",
+				HTTPClient:         &http.Client{Transport: errorTransport{err: tt.err}},
+				MaxRetriesOverride: Int(0),
 			})
 			if err != nil {
 				t.Fatalf("New() error = %v", err)
@@ -562,6 +564,162 @@ func TestExportClassifiesTransportErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestExportRetriesRetryableStatusWithBackoff(t *testing.T) {
+	clearEnv(t)
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		if requests < 3 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+	sleeper := &recordingSleeper{}
+	exp, err := New(Config{
+		APIKey:                 "key",
+		Endpoint:               server.URL,
+		MLApp:                  "app",
+		MaxRetriesOverride:     Int(3),
+		RetryBaseDelayOverride: Duration(10 * time.Millisecond),
+		RetryMaxDelayOverride:  Duration(25 * time.Millisecond),
+		RetryJitterSeed:        7,
+		Sleeper:                sleeper,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := exp.Export(t.Context(), []einoobs.Observation{endedRunObservation()}); err != nil {
+		t.Fatalf("Export() error = %v", err)
+	}
+	if requests != 3 {
+		t.Fatalf("requests = %d, want 3", requests)
+	}
+	if len(sleeper.delays) != 2 {
+		t.Fatalf("delays = %v, want 2 entries", sleeper.delays)
+	}
+	if sleeper.delays[0] < 10*time.Millisecond || sleeper.delays[0] > 15*time.Millisecond {
+		t.Fatalf("first delay = %v, want base delay plus bounded jitter", sleeper.delays[0])
+	}
+	if sleeper.delays[1] < 20*time.Millisecond || sleeper.delays[1] > 25*time.Millisecond {
+		t.Fatalf("second delay = %v, want exponential delay capped by max", sleeper.delays[1])
+	}
+}
+
+func TestExportDoesNotRetryPermanentStatus(t *testing.T) {
+	clearEnv(t)
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+	sleeper := &recordingSleeper{}
+	exp, err := New(Config{
+		APIKey:             "key",
+		Endpoint:           server.URL,
+		MLApp:              "app",
+		MaxRetriesOverride: Int(3),
+		Sleeper:            sleeper,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	err = exp.Export(t.Context(), []einoobs.Observation{endedRunObservation()})
+	var obsErr einoobs.ObservationError
+	if !errors.As(err, &obsErr) {
+		t.Fatalf("Export() error = %T, want ObservationError", err)
+	}
+	if requests != 1 || len(sleeper.delays) != 0 {
+		t.Fatalf("requests = %d delays = %v, want one send and no sleeps", requests, sleeper.delays)
+	}
+	if obsErr.Classification != "auth" || obsErr.Retryable || !obsErr.Dropped {
+		t.Fatalf("ObservationError = %#v", obsErr)
+	}
+}
+
+func TestExportStopsAfterRetryExhaustion(t *testing.T) {
+	clearEnv(t)
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+	sleeper := &recordingSleeper{}
+	exp, err := New(Config{
+		APIKey:                 "key",
+		Endpoint:               server.URL,
+		MLApp:                  "app",
+		MaxRetriesOverride:     Int(2),
+		RetryBaseDelayOverride: Duration(time.Millisecond),
+		RetryMaxDelayOverride:  Duration(time.Millisecond),
+		RetryJitterSeed:        3,
+		Sleeper:                sleeper,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	err = exp.Export(t.Context(), []einoobs.Observation{endedRunObservation()})
+	var obsErr einoobs.ObservationError
+	if !errors.As(err, &obsErr) {
+		t.Fatalf("Export() error = %T, want ObservationError", err)
+	}
+	if requests != 3 || len(sleeper.delays) != 2 {
+		t.Fatalf("requests = %d delays = %v, want three sends and two sleeps", requests, sleeper.delays)
+	}
+	if obsErr.Classification != "rate_limit" || !obsErr.Retryable || obsErr.Dropped {
+		t.Fatalf("ObservationError = %#v", obsErr)
+	}
+}
+
+func TestExportStopsWhenRetrySleepIsCanceled(t *testing.T) {
+	clearEnv(t)
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	exp, err := New(Config{
+		APIKey:                 "key",
+		Endpoint:               server.URL,
+		MLApp:                  "app",
+		MaxRetriesOverride:     Int(3),
+		RetryBaseDelayOverride: Duration(time.Millisecond),
+		Sleeper:                &recordingSleeper{err: context.Canceled},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	err = exp.Export(t.Context(), []einoobs.Observation{endedRunObservation()})
+	var obsErr einoobs.ObservationError
+	if !errors.As(err, &obsErr) {
+		t.Fatalf("Export() error = %T, want ObservationError", err)
+	}
+	if requests != 1 {
+		t.Fatalf("requests = %d, want 1", requests)
+	}
+	if obsErr.Operation != "export" || obsErr.Classification != "canceled" || obsErr.Retryable || obsErr.Dropped {
+		t.Fatalf("ObservationError = %#v", obsErr)
+	}
+}
+
+type recordingSleeper struct {
+	delays []time.Duration
+	err    error
+}
+
+func (s *recordingSleeper) Sleep(_ context.Context, delay time.Duration) error {
+	s.delays = append(s.delays, delay)
+	return s.err
 }
 
 type errorTransport struct {
