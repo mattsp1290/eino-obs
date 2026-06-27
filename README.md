@@ -218,9 +218,25 @@ The supported development and test platforms are standard Go-supported Linux
 and macOS environments. The normal test suite must not require live Datadog
 credentials or external network access.
 
-Run the current validation gates with:
+Run the current validation gates from the repository root with:
 
 ```bash
+make fmt-check
+make vet
+make test
+make race
+```
+
+`make check` runs all of the above in order. The commands expand to the same Go
+toolchain checks used directly during development:
+
+```bash
+test -z "$(gofmt -l $(find . -name '*.go' -not -path './.git/*'))"
+go vet ./...
 go test ./...
 go test -race ./...
 ```
+
+Race testing is expected to pass for the full package set on supported local
+development platforms. The suite uses no-network exporters and fake HTTP
+endpoints, so it must not require live Datadog credentials.
