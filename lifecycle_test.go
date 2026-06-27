@@ -119,3 +119,93 @@ func TestCompactionSummaryRespectsDisabledInputSummaryRedaction(t *testing.T) {
 	}
 	assertPublicRedactionRecord(t, got.Redaction, "compaction.summary", "summary_disabled")
 }
+
+func TestInterruptEventExportsCorrelationReasonStatusAndRedactsMetadata(t *testing.T) {
+	observer := New(Config{})
+	at := time.Date(2026, 6, 26, 12, 10, 0, 0, time.UTC)
+	ctx := ContextWithCorrelation(context.Background(), Correlation{
+		TraceID:             "trace-1",
+		ObservationID:       "run-1",
+		ParentObservationID: "session-1",
+		SessionID:           "session-1",
+		RunID:               "run-1",
+	})
+
+	observer.Interrupt(ctx, InterruptEvent{
+		Reason: "human_feedback",
+		Status: "paused",
+		Time:   at,
+		Metadata: Metadata{
+			"safe":    "visible",
+			"api_key": "secret",
+		},
+	})
+
+	snapshot := observer.Snapshot()
+	if len(snapshot.Observations) != 1 {
+		t.Fatalf("observations = %d, want 1", len(snapshot.Observations))
+	}
+	got := snapshot.Observations[0]
+	if got.Kind != "interrupt" || got.Name != "interrupt" || got.Status != "ok" || !got.Timestamp.Equal(at) {
+		t.Fatalf("interrupt observation = %#v", got)
+	}
+	if got.TraceID != "trace-1" || got.ID != "run-1" || got.ParentID != "session-1" {
+		t.Fatalf("identity = %#v", got)
+	}
+	if got.Attributes["correlation.session_id"] != "session-1" ||
+		got.Attributes["correlation.run_id"] != "run-1" ||
+		got.Attributes["interrupt.reason"] != "human_feedback" ||
+		got.Attributes["interrupt.status"] != "paused" ||
+		got.Attributes["metadata.safe"] != "visible" {
+		t.Fatalf("interrupt attributes = %#v", got.Attributes)
+	}
+	if _, ok := got.Attributes["metadata.api_key"]; ok {
+		t.Fatalf("sensitive metadata leaked: %#v", got.Attributes)
+	}
+	assertPublicRedactionRecord(t, got.Redaction, "metadata.api_key", "default_omitted")
+}
+
+func TestResumeEventExportsCorrelationReasonStatusAndRedactsMetadata(t *testing.T) {
+	observer := New(Config{})
+	at := time.Date(2026, 6, 26, 12, 15, 0, 0, time.UTC)
+
+	observer.Resume(context.Background(), ResumeEvent{
+		Correlation: Correlation{
+			TraceID:             "trace-2",
+			ObservationID:       "run-2",
+			ParentObservationID: "session-2",
+			SessionID:           "session-2",
+			RunID:               "run-2",
+		},
+		Reason: "user_approved",
+		Status: "running",
+		Time:   at,
+		Metadata: Metadata{
+			"safe":          "visible",
+			"Authorization": "secret",
+		},
+	})
+
+	snapshot := observer.Snapshot()
+	if len(snapshot.Observations) != 1 {
+		t.Fatalf("observations = %d, want 1", len(snapshot.Observations))
+	}
+	got := snapshot.Observations[0]
+	if got.Kind != "resume" || got.Name != "resume" || got.Status != "ok" || !got.Timestamp.Equal(at) {
+		t.Fatalf("resume observation = %#v", got)
+	}
+	if got.TraceID != "trace-2" || got.ID != "run-2" || got.ParentID != "session-2" {
+		t.Fatalf("identity = %#v", got)
+	}
+	if got.Attributes["correlation.session_id"] != "session-2" ||
+		got.Attributes["correlation.run_id"] != "run-2" ||
+		got.Attributes["resume.reason"] != "user_approved" ||
+		got.Attributes["resume.status"] != "running" ||
+		got.Attributes["metadata.safe"] != "visible" {
+		t.Fatalf("resume attributes = %#v", got.Attributes)
+	}
+	if _, ok := got.Attributes["metadata.Authorization"]; ok {
+		t.Fatalf("sensitive metadata leaked: %#v", got.Attributes)
+	}
+	assertPublicRedactionRecord(t, got.Redaction, "metadata.Authorization", "default_omitted")
+}

@@ -28,6 +28,22 @@ type CompactionEvent struct {
 	Metadata      Metadata
 }
 
+type InterruptEvent struct {
+	Correlation Correlation
+	Reason      string
+	Status      string
+	Time        time.Time
+	Metadata    Metadata
+}
+
+type ResumeEvent struct {
+	Correlation Correlation
+	Reason      string
+	Status      string
+	Time        time.Time
+	Metadata    Metadata
+}
+
 func (o *Observer) Retry(ctx context.Context, event RetryEvent) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -68,6 +84,30 @@ func (o *Observer) Compaction(ctx context.Context, event CompactionEvent) {
 	}
 	records = append(records, summaryRecords...)
 	observation := lifecycleEventObservation(corr, "compaction", observationTime(event.Time), attrs, records)
+	exportObservation(context.WithoutCancel(ctx), o, observation)
+}
+
+func (o *Observer) Interrupt(ctx context.Context, event InterruptEvent) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	corr := correlationFromContext(ctx, event.Correlation)
+	attrs := baseObservationAttributes(o, corr, cloneMetadata(event.Metadata))
+	addStringAttr(attrs, "interrupt.reason", firstNonEmpty(event.Reason, "interrupt"))
+	addStringAttr(attrs, "interrupt.status", firstNonEmpty(event.Status, "interrupted"))
+	observation := lifecycleEventObservation(corr, "interrupt", observationTime(event.Time), attrs, nil)
+	exportObservation(context.WithoutCancel(ctx), o, observation)
+}
+
+func (o *Observer) Resume(ctx context.Context, event ResumeEvent) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	corr := correlationFromContext(ctx, event.Correlation)
+	attrs := baseObservationAttributes(o, corr, cloneMetadata(event.Metadata))
+	addStringAttr(attrs, "resume.reason", firstNonEmpty(event.Reason, "resume"))
+	addStringAttr(attrs, "resume.status", firstNonEmpty(event.Status, "resumed"))
+	observation := lifecycleEventObservation(corr, "resume", observationTime(event.Time), attrs, nil)
 	exportObservation(context.WithoutCancel(ctx), o, observation)
 }
 
