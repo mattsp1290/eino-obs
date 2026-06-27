@@ -1,0 +1,51 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 52,
+  "branch": "bead-swarm/iteration-52-lifecycle-event-api-integration",
+  "slug": "lifecycle-event-api-integration",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Parent implemented the selected lifecycle integration bead directly and used two independent reviewer subagents.",
+  "selected_beads": ["eino-obs-6on.23"],
+  "beads_done": ["eino-obs-6on.23"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "implementation_summary": [
+    "Added an integration lifecycle test covering interrupt, resume, retry, compaction, cancellation, and generic error helpers together.",
+    "Verified the helpers share correlation identity, service metadata, metadata redaction, compaction summary redaction, retry attributes, cancellation error fields, and generic error fields through the no-network snapshot boundary.",
+    "Confirmed the lifecycle family satisfies the integrated event API acceptance criteria after the smaller helper beads were merged."
+  ],
+  "validation": [
+    "go test ./...: pass",
+    "go build ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check: pass",
+    "reviewer lifecycle-integration-schema-review go test ./...: pass",
+    "reviewer lifecycle-test-coverage-review go test ./...: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [],
+  "review_suggestion_summary": [
+    "Consider adding explicit-correlation override coverage for a lifecycle helper.",
+    "Consider adding additional event-specific assertions for retry max attempts/classification, compaction before/after tokens, interrupt/resume reason/status, and error operation/classification attributes.",
+    "Consider asserting deterministic timestamps for each lifecycle observation and noting that Snapshot checks the post-redaction no-network export result."
+  ],
+  "reviews": [
+    {
+      "reviewer": "lifecycle-integration-schema-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-52-lifecycle-event-api-integration-2026-06-27/lifecycle-integration-schema-review/04-action-items.md"
+    },
+    {
+      "reviewer": "lifecycle-test-coverage-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-52-lifecycle-event-api-integration-2026-06-27/lifecycle-test-coverage-review/04-action-items.md"
+    }
+  ],
+  "status": "complete"
+}
