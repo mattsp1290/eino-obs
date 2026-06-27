@@ -1,0 +1,13 @@
+{
+  "iteration": 23,
+  "issue": "eino-obs-6on.51",
+  "title": "Map normalized spans and events to selected exporter payloads",
+  "branch": "bead-swarm/iteration-23-datadog-payload-mapping",
+  "status": "in_progress",
+  "started_at": "2026-06-26",
+  "scope": [
+    "Datadog HTTP payload structs",
+    "normalized span/event to payload mapping",
+    "local fixture tests for metadata, metrics, errors, timestamps, and redaction records"
+  ]
+}
