@@ -1,0 +1,43 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 26,
+  "branch": "bead-swarm/iteration-26-exporter-retry-backoff",
+  "slug": "exporter-retry-backoff",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.55"],
+  "beads_done": ["eino-obs-6on.55"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./exporter/datadog: pass",
+    "go test ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": false,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial retry-policy review approved retry count, backoff, retryable status handling, and permanent failure behavior with no blocking findings.",
+    "Initial failure-cancellation review approved cancellation/deadline handling and failure classification behavior with no blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "retry-policy",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-26-exporter-retry-backoff-2026-06-26/retry-policy/05-verdict.md"
+    },
+    {
+      "reviewer": "failure-cancellation",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-26-exporter-retry-backoff-2026-06-26/failure-cancellation/05-verdict.md"
+    }
+  ],
+  "completed_at": "2026-06-27T01:00:26Z",
+  "status": "complete"
+}
