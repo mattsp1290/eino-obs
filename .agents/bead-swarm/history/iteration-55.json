@@ -1,0 +1,48 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 55,
+  "branch": "bead-swarm/iteration-55-package-docs-examples",
+  "slug": "package-docs-examples",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Parent implemented the selected documentation/examples bead directly and used two independent reviewer subagents.",
+  "selected_beads": ["eino-obs-6on.39"],
+  "beads_done": ["eino-obs-6on.39"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "implementation_summary": [
+    "Expanded package documentation to describe observer scope, no-network defaults, transport-agnostic helper types, and Datadog exporter configuration boundary.",
+    "Added compile-checked package examples for minimal session/run usage and a fuller model-call, streaming, tool, retry, and compaction workflow.",
+    "Kept examples limited to exported einoobs types and standard library values, with no concrete Eino runtime, provider SDK, AG-UI runtime, Datadog transport, or OpenTelemetry dependencies."
+  ],
+  "validation": [
+    "go test ./...: pass",
+    "go build ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check: pass",
+    "reviewer package-examples-api-review go test ./...: pass",
+    "reviewer package-examples-api-review go test -run 'ExampleObserver' -v: pass",
+    "reviewer package-docs-compile-review go test -run Example ./...: pass",
+    "reviewer package-docs-compile-review go test ./...: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [],
+  "reviews": [
+    {
+      "reviewer": "package-examples-api-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-55-package-docs-examples-2026-06-27/package-examples-api-review/04-action-items.md"
+    },
+    {
+      "reviewer": "package-docs-compile-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-55-package-docs-examples-2026-06-27/package-docs-compile-review/04-action-items.md"
+    }
+  ],
+  "status": "complete"
+}
