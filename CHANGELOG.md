@@ -52,7 +52,7 @@ agents.
   implementation with capacity limits, operation counters, snapshots, reset,
   flush/shutdown behavior, and deterministic failure injection.
 
-### Datadog Exporter
+### Selected Datadog Exporter
 
 - Added `exporter/datadog`, a Datadog-compatible HTTP exporter for LLM
   observation span intake.
@@ -90,9 +90,9 @@ agents.
   `make race`, and `make check`.
 - Added GitHub Actions CI for gofmt check, `go vet ./...`, and
   `go test ./...`.
-- Final local release-readiness gates passed with no live Datadog credentials:
-  `make fmt-check`, `make vet`, `make test`, `make race`, `go build ./...`,
-  and `git diff --check`.
+- Release-readiness gates are documented as passing with no live Datadog
+  credentials: `make fmt-check`, `make vet`, `make test`, `make race`,
+  `go build ./...`, and `git diff --check`.
 
 ### Known Limitations
 
