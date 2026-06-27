@@ -1,0 +1,11 @@
+{
+  "iteration": 50,
+  "branch": "bead-swarm/iteration-50-streaming-model-turn",
+  "slug": "streaming-model-turn",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "selected_beads": ["eino-obs-6on.21"],
+  "beads_done_pending_close": [],
+  "beads_blocked": [],
+  "beads_partial": []
+}
