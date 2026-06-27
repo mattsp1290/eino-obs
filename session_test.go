@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/mattsp1290/eino-obs/internal/model"
 )
 
 func TestSessionEndExportsCorrelationAndMetadata(t *testing.T) {
@@ -35,6 +37,7 @@ func TestSessionEndExportsCorrelationAndMetadata(t *testing.T) {
 		t.Fatalf("snapshot count = exports:%d observations:%d, want 1/1", snapshot.ExportCount, len(snapshot.Observations))
 	}
 	got := snapshot.Observations[0]
+	validateNormalizedPublicSpan(t, got)
 	if got.ID != "session-obs" || got.ParentID != "parent-ctx" || got.TraceID != "trace-ctx" {
 		t.Fatalf("identity = %#v", got)
 	}
@@ -66,27 +69,38 @@ func TestSessionStartRunParentsRunToSession(t *testing.T) {
 		TraceID:             "stale-trace",
 		ParentObservationID: "stale-parent",
 	})
-	session := observer.StartSession(ctx, SessionStart{Correlation: Correlation{
-		SessionID:     "session-1",
-		ObservationID: "session-obs",
-		TraceID:       "trace-session",
-	}})
+	runStart := time.Date(2026, 6, 26, 10, 1, 0, 0, time.UTC)
+	runEnd := runStart.Add(250 * time.Millisecond)
+	sessionEnd := runEnd.Add(50 * time.Millisecond)
+	session := observer.StartSession(ctx, SessionStart{
+		Correlation: Correlation{
+			SessionID:     "session-1",
+			ObservationID: "session-obs",
+			TraceID:       "trace-session",
+		},
+		StartTime: runStart.Add(-100 * time.Millisecond),
+	})
 
 	run := session.StartRun(RunStart{
 		Correlation: Correlation{ObservationID: "run-obs", RunID: "run-explicit"},
 		Name:        "answer-user-message",
+		StartTime:   runStart,
 		Metadata:    Metadata{"workflow": "chat"},
 	})
-	run.End(RunEnd{})
-	session.End(SessionEnd{})
+	run.End(RunEnd{EndTime: runEnd})
+	session.End(SessionEnd{EndTime: sessionEnd})
 
 	snapshot := observer.Snapshot()
 	if len(snapshot.Observations) != 2 {
 		t.Fatalf("observations = %d, want 2", len(snapshot.Observations))
 	}
 	gotRun := snapshot.Observations[0]
+	validateNormalizedPublicSpan(t, gotRun)
 	if gotRun.Kind != "run" || gotRun.ID != "run-obs" || gotRun.ParentID != "session-obs" || gotRun.TraceID != "trace-session" {
 		t.Fatalf("run identity/shape = %#v", gotRun)
+	}
+	if gotRun.Duration != 250*time.Millisecond || !gotRun.DurationKnown {
+		t.Fatalf("run timing = duration:%s known:%t", gotRun.Duration, gotRun.DurationKnown)
 	}
 	if gotRun.Attributes["correlation.session_id"] != "session-1" ||
 		gotRun.Attributes["correlation.run_id"] != "run-explicit" ||
@@ -95,6 +109,7 @@ func TestSessionStartRunParentsRunToSession(t *testing.T) {
 		t.Fatalf("run attributes = %#v", gotRun.Attributes)
 	}
 	gotSession := snapshot.Observations[1]
+	validateNormalizedPublicSpan(t, gotSession)
 	if gotSession.Kind != "session" || gotSession.ID != "session-obs" || gotSession.TraceID != "trace-session" {
 		t.Fatalf("session identity/shape = %#v", gotSession)
 	}
@@ -116,11 +131,35 @@ func TestRunErrorExportsTerminalFailureOnce(t *testing.T) {
 		t.Fatalf("snapshot count = exports:%d observations:%d, want 1/1", snapshot.ExportCount, len(snapshot.Observations))
 	}
 	got := snapshot.Observations[0]
+	validateNormalizedPublicSpan(t, got)
 	if got.Status != "error" || got.Error == nil {
 		t.Fatalf("terminal error = status:%q error:%#v", got.Status, got.Error)
 	}
 	if got.Error.Operation != "run" || got.Error.Classification != "runtime" || !got.Error.Retryable {
 		t.Fatalf("error fields = %#v", got.Error)
+	}
+}
+
+func TestRunCanceledWithIdentityValidatesNormalizedTerminalFields(t *testing.T) {
+	observer := New(Config{})
+	run := observer.StartRun(context.Background(), RunStart{
+		Correlation: Correlation{ObservationID: "run-obs", TraceID: "trace-1"},
+		Name:        "runtime",
+	})
+
+	run.Error(RunError{Err: context.Canceled, Canceled: true, Classification: "canceled", Retryable: true})
+
+	snapshot := observer.Snapshot()
+	if snapshot.ExportCount != 1 || len(snapshot.Observations) != 1 {
+		t.Fatalf("snapshot count = exports:%d observations:%d, want 1/1", snapshot.ExportCount, len(snapshot.Observations))
+	}
+	got := snapshot.Observations[0]
+	validateNormalizedPublicSpan(t, got)
+	if got.Status != "canceled" || got.Error == nil ||
+		got.Error.Operation != "run" ||
+		got.Error.Classification != "canceled" ||
+		got.Error.Retryable {
+		t.Fatalf("canceled run = status:%q error:%#v", got.Status, got.Error)
 	}
 }
 
@@ -182,5 +221,36 @@ func TestHelperAfterShutdownIsInert(t *testing.T) {
 	}
 	if len(handled) != 0 {
 		t.Fatalf("post-shutdown handler calls = %#v", handled)
+	}
+}
+
+func validateNormalizedPublicSpan(t *testing.T, observation Observation) {
+	t.Helper()
+	span := model.NewSpan(
+		model.ObservationIdentity{ID: observation.ID, ParentID: observation.ParentID, TraceID: observation.TraceID},
+		model.SpanKind(observation.Kind),
+		observation.Name,
+		observation.Timestamp,
+	)
+	span.Status = model.Status(observation.Status)
+	span.Attributes = model.Attributes(observation.Attributes)
+	if observation.DurationKnown {
+		span.EndTime = observation.Timestamp.Add(observation.Duration).UTC()
+	}
+	if observation.Error != nil {
+		retryable := observation.Error.Retryable
+		dropped := observation.Error.Dropped
+		canceled := observation.Status == "canceled"
+		span.Error = &model.ObservationError{
+			Operation:      observation.Error.Operation,
+			Classification: observation.Error.Classification,
+			Message:        observation.Error.Error(),
+			Retryable:      &retryable,
+			Canceled:       &canceled,
+			Dropped:        &dropped,
+		}
+	}
+	if err := span.Validate(); err != nil {
+		t.Fatalf("normalized public span validation failed: %v", err)
 	}
 }
