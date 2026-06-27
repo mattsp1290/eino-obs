@@ -45,6 +45,26 @@ include the original commit SHA used to derive it.
 
 ## Release Response Format For `eino-agent`
 
+Current release-response record, generated after final verification on
+2026-06-27:
+
+```yaml
+module: github.com/mattsp1290/eino-obs
+recommended_pin:
+  kind: commit
+  value: 6bad663c15a4e4fcd229980b336cfadd90438590
+  command: go get github.com/mattsp1290/eino-obs@6bad663c15a4e4fcd229980b336cfadd90438590
+consumer_record:
+  go_module_require: github.com/mattsp1290/eino-obs <version-from-go-list-m-github.com/mattsp1290/eino-obs>
+  source_commit: 6bad663c15a4e4fcd229980b336cfadd90438590
+  release_notes: CHANGELOG.md#v010---unreleased
+  replace_with: v0.1.0
+```
+
+`v0.1.0` is not present locally or on `origin` at the time this response was
+generated. The commit above is the pushed `main` commit to use until the semver
+tag is created.
+
 When this repository is ready for the first tagged integration response,
 provide this record to `eino-agent`:
 
