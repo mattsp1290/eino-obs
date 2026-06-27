@@ -55,7 +55,7 @@ recommended_pin:
   value: 6bad663c15a4e4fcd229980b336cfadd90438590
   command: go get github.com/mattsp1290/eino-obs@6bad663c15a4e4fcd229980b336cfadd90438590
 consumer_record:
-  go_module_require: github.com/mattsp1290/eino-obs <go-pseudo-version-from-go-list>
+  go_module_require: github.com/mattsp1290/eino-obs <version-from-go-list-m-github.com/mattsp1290/eino-obs>
   source_commit: 6bad663c15a4e4fcd229980b336cfadd90438590
   release_notes: CHANGELOG.md#v010---unreleased
   replace_with: v0.1.0
