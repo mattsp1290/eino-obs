@@ -2,8 +2,11 @@ package einoobs
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/mattsp1290/eino-obs/internal/model"
 )
 
 func TestToolRegisteredExportsEventWithCorrelation(t *testing.T) {
@@ -165,6 +168,298 @@ func TestToolMaterializedRequiresToolCallID(t *testing.T) {
 
 	var nilObserver *Observer
 	nilObserver.ToolMaterialized(context.Background(), ToolMaterialized{ToolName: "search"})
+}
+
+func TestStartToolCallEndExportsLatencySummariesAndCorrelation(t *testing.T) {
+	observer := New(Config{
+		Redaction: RedactionOptions{CaptureInputSummary: true, CaptureOutputSummary: true, MaxSummaryBytes: 4},
+	})
+	start := time.Date(2026, 6, 26, 12, 0, 0, 0, time.FixedZone("offset", -4*60*60))
+	ctx := ContextWithCorrelation(context.Background(), Correlation{
+		SessionID:           "session-1",
+		RunID:               "run-1",
+		TraceID:             "trace-1",
+		ParentObservationID: "run-obs",
+	})
+
+	call := observer.StartToolCall(ctx, ToolCallStart{
+		Correlation:  Correlation{ObservationID: "tool-span"},
+		ToolCallID:   "tool-call-1",
+		ToolName:     "search",
+		StartTime:    start,
+		InputSummary: Summary{Name: "query", Text: "hello world"},
+		Metadata:     Metadata{"phase": "start"},
+	})
+	call.End(ToolCallEnd{
+		EndTime:       start.Add(1500 * time.Millisecond),
+		OutputSummary: Summary{Name: "result", Text: "found documents"},
+		Metadata:      Metadata{"phase": "end"},
+	})
+
+	snapshot := observer.Snapshot()
+	if snapshot.ExportCount != 1 || len(snapshot.Observations) != 1 {
+		t.Fatalf("snapshot count = exports:%d observations:%d, want 1/1", snapshot.ExportCount, len(snapshot.Observations))
+	}
+	got := snapshot.Observations[0]
+	if got.ID != "tool-span" || got.ParentID != "run-obs" || got.TraceID != "trace-1" {
+		t.Fatalf("identity = %#v", got)
+	}
+	if got.Kind != "tool_call" || got.Name != "search" || got.Status != "ok" {
+		t.Fatalf("shape = kind:%q name:%q status:%q", got.Kind, got.Name, got.Status)
+	}
+	if !got.Timestamp.Equal(start.UTC()) || got.Duration != 1500*time.Millisecond || !got.DurationKnown {
+		t.Fatalf("timing = timestamp:%s duration:%s known:%v", got.Timestamp, got.Duration, got.DurationKnown)
+	}
+	if got.Attributes["tool.name"] != "search" ||
+		got.Attributes["tool.call_id"] != "tool-call-1" ||
+		got.Attributes["tool.kind"] != "server" ||
+		got.Attributes["tool.status"] != "succeeded" ||
+		got.Attributes["tool.latency.ms"] != int64(1500) {
+		t.Fatalf("tool attributes = %#v", got.Attributes)
+	}
+	if got.Attributes["correlation.session_id"] != "session-1" ||
+		got.Attributes["correlation.run_id"] != "run-1" ||
+		got.Attributes["correlation.tool_call_id"] != "tool-call-1" ||
+		got.Attributes["metadata.phase"] != "end" {
+		t.Fatalf("correlation/metadata attributes = %#v", got.Attributes)
+	}
+	if got.Attributes["tool.input.summary"] != "hell" ||
+		got.Attributes["tool.input.summary.name"] != "query" ||
+		got.Attributes["tool.output.summary"] != "foun" {
+		t.Fatalf("summary attributes = %#v", got.Attributes)
+	}
+	assertPublicRedactionRecord(t, got.Redaction, "tool.input.summary.text", "summary_truncated")
+	assertPublicRedactionRecord(t, got.Redaction, "tool.output.summary.text", "summary_truncated")
+
+	call.End(ToolCallEnd{EndTime: start.Add(time.Hour)})
+	if snapshot := observer.Snapshot(); snapshot.ExportCount != 1 || len(snapshot.Observations) != 1 {
+		t.Fatalf("second End exported again: %#v", snapshot)
+	}
+}
+
+func TestToolCallErrorExportsFailedAndCanceledSpans(t *testing.T) {
+	observer := New(Config{})
+	start := time.Now()
+
+	failed := observer.StartToolCall(context.Background(), ToolCallStart{
+		Correlation: Correlation{ObservationID: "failed-tool", TraceID: "trace-1"},
+		ToolCallID:  "tool-call-1",
+		ToolName:    "search",
+		StartTime:   start,
+	})
+	failed.Error(ToolCallError{
+		Err:            errSentinel{},
+		Classification: "tool_timeout",
+		Retryable:      true,
+		EndTime:        start.Add(time.Second),
+	})
+
+	canceled := observer.StartToolCall(context.Background(), ToolCallStart{
+		Correlation: Correlation{ObservationID: "canceled-tool", TraceID: "trace-1"},
+		ToolCallID:  "tool-call-2",
+		ToolName:    "lookup",
+		StartTime:   start,
+	})
+	canceled.Error(ToolCallError{
+		Err:            context.Canceled,
+		Classification: "canceled",
+		Canceled:       true,
+		Retryable:      true,
+		EndTime:        start.Add(2 * time.Second),
+	})
+
+	snapshot := observer.Snapshot()
+	if snapshot.ExportCount != 2 || len(snapshot.Observations) != 2 {
+		t.Fatalf("snapshot count = exports:%d observations:%d, want 2/2", snapshot.ExportCount, len(snapshot.Observations))
+	}
+	gotFailed := snapshot.Observations[0]
+	if gotFailed.Status != "error" || gotFailed.Attributes["tool.status"] != "failed" {
+		t.Fatalf("failed span status = %#v", gotFailed)
+	}
+	if gotFailed.Error == nil || gotFailed.Error.Operation != "tool_call" || gotFailed.Error.Classification != "tool_timeout" || !gotFailed.Error.Retryable {
+		t.Fatalf("failed error = %#v", gotFailed.Error)
+	}
+	if gotFailed.Attributes["error.operation"] != "tool_call" ||
+		gotFailed.Attributes["error.classification"] != "tool_timeout" ||
+		gotFailed.Attributes["error.retryable"] != true {
+		t.Fatalf("failed attrs = %#v", gotFailed.Attributes)
+	}
+
+	gotCanceled := snapshot.Observations[1]
+	if gotCanceled.Status != "canceled" || gotCanceled.Attributes["tool.status"] != "canceled" {
+		t.Fatalf("canceled span status = %#v", gotCanceled)
+	}
+	if gotCanceled.Error == nil || gotCanceled.Error.Operation != "tool_call" || gotCanceled.Error.Classification != "canceled" || gotCanceled.Error.Retryable {
+		t.Fatalf("canceled error = %#v", gotCanceled.Error)
+	}
+	if gotCanceled.Attributes["error.retryable"] != false || gotCanceled.Attributes["error.canceled"] != true {
+		t.Fatalf("canceled attrs = %#v", gotCanceled.Attributes)
+	}
+}
+
+func TestToolSettledExportsLatencyOutputAndErrors(t *testing.T) {
+	observer := New(Config{
+		Redaction: RedactionOptions{CaptureOutputSummary: true, MaxSummaryBytes: 6},
+	})
+
+	observer.ToolSettled(context.Background(), ToolSettled{
+		Correlation:   Correlation{ObservationID: "settled-ok", TraceID: "trace-1"},
+		ToolCallID:    "tool-call-1",
+		ToolName:      "search",
+		Status:        "succeeded",
+		Latency:       1200 * time.Millisecond,
+		LatencyKnown:  true,
+		OutputSummary: Summary{Name: "result", Text: "documents found"},
+	})
+	observer.ToolSettled(context.Background(), ToolSettled{
+		Correlation: Correlation{ObservationID: "settled-failed", TraceID: "trace-1"},
+		ToolCallID:  "tool-call-2",
+		ToolName:    "search",
+		Status:      "failed",
+		Error: ObservationError{
+			Classification: "tool_error",
+			Err:            errSentinel{},
+			Retryable:      true,
+		},
+	})
+
+	snapshot := observer.Snapshot()
+	if snapshot.ExportCount != 2 || len(snapshot.Observations) != 2 {
+		t.Fatalf("snapshot count = exports:%d observations:%d, want 2/2", snapshot.ExportCount, len(snapshot.Observations))
+	}
+	ok := snapshot.Observations[0]
+	if ok.Kind != "tool.settled" || ok.Status != "ok" || ok.Attributes["tool.status"] != "succeeded" {
+		t.Fatalf("settled ok = %#v", ok)
+	}
+	if ok.Attributes["tool.latency.ms"] != int64(1200) ||
+		ok.Attributes["tool.output.summary"] != "docume" {
+		t.Fatalf("settled ok attrs = %#v", ok.Attributes)
+	}
+	assertPublicRedactionRecord(t, ok.Redaction, "tool.output.summary.text", "summary_truncated")
+
+	failed := snapshot.Observations[1]
+	if failed.Status != "error" || failed.Attributes["tool.status"] != "failed" {
+		t.Fatalf("settled failed = %#v", failed)
+	}
+	if failed.Error == nil || failed.Error.Operation != "tool_call" || failed.Error.Classification != "tool_error" || !failed.Error.Retryable {
+		t.Fatalf("settled failed error = %#v", failed.Error)
+	}
+}
+
+func TestServerToolHelpersRejectMissingToolCallIDAndInvalidSettlementStatus(t *testing.T) {
+	var handled []ObservationError
+	observer := New(Config{
+		ErrorHandler: func(_ context.Context, err ObservationError) {
+			handled = append(handled, err)
+		},
+	})
+
+	observer.StartToolCall(context.Background(), ToolCallStart{ToolName: "search"}).End(ToolCallEnd{})
+	observer.ToolSettled(context.Background(), ToolSettled{ToolName: "search"})
+	observer.ToolSettled(context.Background(), ToolSettled{ToolCallID: "tool-call-1", Status: "pending"})
+
+	snapshot := observer.Snapshot()
+	if snapshot.ExportCount != 0 || len(snapshot.Observations) != 0 {
+		t.Fatalf("invalid server tool snapshot = exports:%d observations:%d", snapshot.ExportCount, len(snapshot.Observations))
+	}
+	if len(handled) != 3 {
+		t.Fatalf("handled len = %d, want 3: %#v", len(handled), handled)
+	}
+	for _, err := range handled {
+		if err.Operation != "record" || err.Classification != "invalid_schema" || !err.Dropped {
+			t.Fatalf("handled error = %#v", err)
+		}
+	}
+
+	var nilObserver *Observer
+	nilObserver.StartToolCall(context.Background(), ToolCallStart{ToolName: "search"}).End(ToolCallEnd{})
+	nilObserver.ToolSettled(context.Background(), ToolSettled{ToolName: "search"})
+}
+
+func TestServerToolHelpersDefaultEmptyToolNameClampLatencyAndValidateModel(t *testing.T) {
+	observer := New(Config{})
+
+	observer.StartToolCall(context.Background(), ToolCallStart{
+		Correlation: Correlation{ObservationID: "tool-span", TraceID: "trace-1"},
+		ToolCallID:  "tool-call-1",
+	}).End(ToolCallEnd{})
+	observer.ToolSettled(context.Background(), ToolSettled{
+		Correlation:  Correlation{ObservationID: "settled-event", TraceID: "trace-1"},
+		ToolCallID:   "tool-call-2",
+		Status:       "succeeded",
+		Latency:      -time.Millisecond,
+		LatencyKnown: true,
+	})
+
+	snapshot := observer.Snapshot()
+	if snapshot.ExportCount != 2 || len(snapshot.Observations) != 2 {
+		t.Fatalf("snapshot count = exports:%d observations:%d, want 2/2", snapshot.ExportCount, len(snapshot.Observations))
+	}
+	span := snapshot.Observations[0]
+	if span.Name != "tool_call" || span.Attributes["tool.name"] != "tool_call" {
+		t.Fatalf("span tool name = name:%q attrs:%#v", span.Name, span.Attributes)
+	}
+	event := snapshot.Observations[1]
+	if event.Attributes["tool.name"] != "tool_call" || event.Attributes["tool.latency.ms"] != int64(0) {
+		t.Fatalf("settled event attrs = %#v", event.Attributes)
+	}
+	for _, observation := range snapshot.Observations {
+		if observation.Kind == "tool.settled" {
+			modelEvent := model.NewEvent(
+				model.ObservationIdentity{ID: observation.ID, ParentID: observation.ParentID, TraceID: observation.TraceID},
+				model.EventName(observation.Kind),
+				observation.Timestamp,
+			)
+			modelEvent.Status = model.Status(observation.Status)
+			modelEvent.Attributes = model.Attributes(observation.Attributes)
+			if err := modelEvent.Validate(); err != nil {
+				t.Fatalf("normalized event validation for %s failed: %v", observation.Kind, err)
+			}
+			continue
+		}
+		modelSpan := model.NewSpan(
+			model.ObservationIdentity{ID: observation.ID, ParentID: observation.ParentID, TraceID: observation.TraceID},
+			model.SpanKind(observation.Kind),
+			observation.Name,
+			observation.Timestamp,
+		)
+		modelSpan.Status = model.Status(observation.Status)
+		modelSpan.Attributes = model.Attributes(observation.Attributes)
+		if observation.DurationKnown {
+			modelSpan.EndTime = observation.Timestamp.Add(observation.Duration).UTC()
+		}
+		if err := modelSpan.Validate(); err != nil {
+			t.Fatalf("normalized validation for %s failed: %v", observation.Kind, err)
+		}
+	}
+}
+
+func TestToolCallConcurrentTerminalMethodsExportOnce(t *testing.T) {
+	observer := New(Config{})
+	call := observer.StartToolCall(context.Background(), ToolCallStart{
+		Correlation: Correlation{ObservationID: "tool-span", TraceID: "trace-1"},
+		ToolCallID:  "tool-call-1",
+		ToolName:    "search",
+	})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if i%2 == 0 {
+				call.End(ToolCallEnd{})
+				return
+			}
+			call.Error(ToolCallError{Err: errSentinel{}, Classification: "tool_error", Retryable: true})
+		}(i)
+	}
+	wg.Wait()
+
+	snapshot := observer.Snapshot()
+	if snapshot.ExportCount != 1 || len(snapshot.Observations) != 1 {
+		t.Fatalf("concurrent terminal exports = exports:%d observations:%d", snapshot.ExportCount, len(snapshot.Observations))
+	}
 }
 
 func TestAGUIToolMaterializedCarriesPrimitiveIDsAndRedactsSummary(t *testing.T) {
@@ -330,10 +625,12 @@ func TestToolHelpersIgnoreCanceledCallerContext(t *testing.T) {
 	observer.ToolMaterialized(ctx, ToolMaterialized{ToolCallID: "tool-call-1", ToolName: "search"})
 	observer.AGUIToolMaterialized(ctx, AGUIToolMaterialized{ToolCallID: "tool-call-2", ToolName: "search"})
 	observer.AGUIToolSettled(ctx, AGUIToolSettled{ToolCallID: "tool-call-2", ToolName: "search"})
+	observer.StartToolCall(ctx, ToolCallStart{ToolCallID: "tool-call-3", ToolName: "search"}).End(ToolCallEnd{})
+	observer.ToolSettled(ctx, ToolSettled{ToolCallID: "tool-call-3", ToolName: "search"})
 
 	snapshot := observer.Snapshot()
-	if snapshot.ExportCount != 4 || len(snapshot.Observations) != 4 {
-		t.Fatalf("snapshot count = exports:%d observations:%d, want 4/4", snapshot.ExportCount, len(snapshot.Observations))
+	if snapshot.ExportCount != 6 || len(snapshot.Observations) != 6 {
+		t.Fatalf("snapshot count = exports:%d observations:%d, want 6/6", snapshot.ExportCount, len(snapshot.Observations))
 	}
 }
 
@@ -352,6 +649,8 @@ func TestToolHelpersAfterShutdownAreInert(t *testing.T) {
 	observer.ToolMaterialized(context.Background(), ToolMaterialized{ToolCallID: "tool-call-1", ToolName: "search"})
 	observer.AGUIToolMaterialized(context.Background(), AGUIToolMaterialized{ToolCallID: "tool-call-2", ToolName: "search"})
 	observer.AGUIToolSettled(context.Background(), AGUIToolSettled{ToolCallID: "tool-call-2", ToolName: "search"})
+	observer.StartToolCall(context.Background(), ToolCallStart{ToolCallID: "tool-call-3", ToolName: "search"}).End(ToolCallEnd{})
+	observer.ToolSettled(context.Background(), ToolSettled{ToolCallID: "tool-call-3", ToolName: "search"})
 
 	snapshot := observer.Snapshot()
 	if snapshot.ExportCount != 0 || len(snapshot.Observations) != 0 {
