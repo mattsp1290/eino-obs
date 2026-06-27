@@ -123,6 +123,11 @@ For tests that need a recorder-style exporter with capacity controls, use the
 `exporter/fake` package:
 
 ```go
+import (
+	einoobs "github.com/mattsp1290/eino-obs"
+	"github.com/mattsp1290/eino-obs/exporter/fake"
+)
+
 fakeExporter := fake.New(fake.Config{
 	Redaction: einoobs.RedactionOptions{CaptureInputSummary: true},
 	Capacity:  100,
