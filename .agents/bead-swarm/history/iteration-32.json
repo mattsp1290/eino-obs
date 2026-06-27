@@ -1,0 +1,45 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 32,
+  "branch": "bead-swarm/iteration-32-exporter-batching-lifecycle-integration",
+  "slug": "exporter-batching-lifecycle-integration",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Aggregate verification bead; dependent implementation beads were already merged, and independent Codex reviewer subagents confirmed no additional code changes were required.",
+  "selected_beads": ["eino-obs-6on.29"],
+  "beads_done": ["eino-obs-6on.29"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./exporter/datadog -run 'Test(BuildPayload|ExportSplits|ExportDrops|ExportPostsMappedPayload|Flush|Shutdown|PermanentExportFailure|FailedShutdown)' -count=1: pass",
+    "go test ./exporter/datadog: pass",
+    "go test ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": false,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Batching/payload integration review approved batch limits, payload limits, timestamp and duration mapping, ordering, and no-live-credentials coverage.",
+    "Lifecycle/backpressure integration review approved deterministic Flush and Shutdown behavior, retryable pending retention, permanent drop behavior, cancellation handling, and shutdown idempotency.",
+    "Both reviewers stated no code changes were required beyond closing the aggregate bead."
+  ],
+  "reviews": [
+    {
+      "reviewer": "batching-payload-integration",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-32-exporter-batching-lifecycle-integration-2026-06-26/batching-payload-integration/05-verdict.md"
+    },
+    {
+      "reviewer": "lifecycle-backpressure-integration",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-32-exporter-batching-lifecycle-integration-2026-06-26/lifecycle-backpressure-integration/05-verdict.md"
+    }
+  ],
+  "completed_at": "2026-06-27T01:54:20Z",
+  "status": "complete"
+}
