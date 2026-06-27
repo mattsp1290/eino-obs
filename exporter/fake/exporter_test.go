@@ -93,6 +93,40 @@ func TestExporterCapacityDropReturnsError(t *testing.T) {
 	}
 }
 
+func TestExporterSnapshotInspectionIsDefensiveCopy(t *testing.T) {
+	exp := New(Config{Capacity: 1})
+	first := einoobs.Observation{ID: "span-1", TraceID: "trace-1", Kind: "run", Name: "run", Status: "ok", Timestamp: time.Now(), Attributes: map[string]any{"metadata.value": "original"}}
+	second := einoobs.Observation{ID: "span-2", TraceID: "trace-1", Kind: "run", Name: "run", Status: "ok", Timestamp: time.Now()}
+
+	if err := exp.Export(context.Background(), []einoobs.Observation{first, second}); err == nil {
+		t.Fatalf("Export() capacity drop error = nil")
+	}
+	snapshot := exp.Snapshot()
+	if len(snapshot.Recorded) != 1 || len(snapshot.Dropped) != 1 || len(snapshot.Errors) == 0 {
+		t.Fatalf("snapshot before mutation = %#v", snapshot)
+	}
+
+	snapshot.Recorded[0].Attributes["metadata.value"] = "mutated"
+	snapshot.Dropped[0].Reason = "mutated"
+	snapshot.Dropped[0].Error.Classification = "mutated"
+	snapshot.Errors[0].Classification = "mutated"
+	snapshot.OperationCounts["export"] = 99
+	if snapshot.LastError != nil {
+		snapshot.LastError.Classification = "mutated"
+	}
+
+	again := exp.Snapshot()
+	if again.Recorded[0].Attributes["metadata.value"] != "original" ||
+		again.Dropped[0].Reason != "capacity" ||
+		again.Dropped[0].Error.Classification != "capacity" ||
+		again.Errors[0].Classification != "capacity" ||
+		again.OperationCounts["export"] != 1 ||
+		again.LastError == nil ||
+		again.LastError.Classification != "capacity" {
+		t.Fatalf("snapshot mutation changed exporter state: %#v", again)
+	}
+}
+
 func TestExporterFailureInjectionForExportFlushAndShutdown(t *testing.T) {
 	exp := New(Config{Failures: FailurePlan{
 		Export: &Failure{
