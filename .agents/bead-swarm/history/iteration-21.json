@@ -1,0 +1,45 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 21,
+  "branch": "bead-swarm/iteration-21-tool-registration-materialization",
+  "slug": "tool-registration-materialization",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.44"],
+  "beads_done": ["eino-obs-6on.44"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial tool API review requested preserving Summary.Name and Summary.Fields for tool materialization input summaries.",
+    "Initial redaction/no-network review requested full summary propagation, rejecting materialized events without required tool.call_id, and coverage for canceled context and post-shutdown helper behavior.",
+    "Focused redaction/no-network re-review requested a nil-observer guard for the invalid-schema path.",
+    "Updated helpers to pass full Summary values, preserve safe tool input summary subfields through the second redaction pass while redacting sensitive fields, drop invalid materialized events with an observation error, and guard nil observers.",
+    "Focused re-reviews approved both blocker sets with no remaining blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "tool-api-schema",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-21-tool-registration-materialization-2026-06-26/tool-api-schema/06-re-review.md"
+    },
+    {
+      "reviewer": "tool-redaction-no-network",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-21-tool-registration-materialization-2026-06-26/tool-redaction-no-network/07-re-review.md"
+    }
+  ],
+  "completed_at": "2026-06-27T00:12:40Z",
+  "status": "complete"
+}
