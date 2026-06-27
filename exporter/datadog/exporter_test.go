@@ -853,6 +853,247 @@ func TestExportStopsWhenRetrySleepIsCanceled(t *testing.T) {
 	}
 }
 
+func TestFlushDeliversPendingRetryableExport(t *testing.T) {
+	clearEnv(t)
+	status := http.StatusInternalServerError
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.WriteHeader(status)
+	}))
+	defer server.Close()
+	exp, err := New(Config{
+		APIKey:             "key",
+		Endpoint:           server.URL,
+		MLApp:              "app",
+		MaxRetriesOverride: Int(0),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	err = exp.Export(t.Context(), []einoobs.Observation{endedRunObservation()})
+	var obsErr einoobs.ObservationError
+	if !errors.As(err, &obsErr) || !obsErr.Retryable || obsErr.Dropped {
+		t.Fatalf("Export() error = %#v, want retryable ObservationError", err)
+	}
+	if requests != 1 {
+		t.Fatalf("requests after export = %d, want 1", requests)
+	}
+	status = http.StatusAccepted
+	if err := exp.Flush(t.Context()); err != nil {
+		t.Fatalf("Flush() error = %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests after flush = %d, want 2", requests)
+	}
+	if err := exp.Flush(t.Context()); err != nil {
+		t.Fatalf("second Flush() error = %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests after second flush = %d, want 2", requests)
+	}
+}
+
+func TestFlushCanceledPreservesPendingRetryableExport(t *testing.T) {
+	clearEnv(t)
+	status := http.StatusInternalServerError
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.WriteHeader(status)
+	}))
+	defer server.Close()
+	exp, err := New(Config{
+		APIKey:             "key",
+		Endpoint:           server.URL,
+		MLApp:              "app",
+		MaxRetriesOverride: Int(0),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if err := exp.Export(t.Context(), []einoobs.Observation{endedRunObservation()}); err == nil {
+		t.Fatalf("Export() error = nil")
+	}
+	status = http.StatusInternalServerError
+	err = exp.Flush(t.Context())
+	var retryErr einoobs.ObservationError
+	if !errors.As(err, &retryErr) {
+		t.Fatalf("retry Flush() error = %T, want ObservationError", err)
+	}
+	if retryErr.Operation != "flush" || !retryErr.Retryable {
+		t.Fatalf("retry Flush() ObservationError = %#v", retryErr)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	err = exp.Flush(ctx)
+	var obsErr einoobs.ObservationError
+	if !errors.As(err, &obsErr) {
+		t.Fatalf("Flush() error = %T, want ObservationError", err)
+	}
+	if obsErr.Operation != "flush" || obsErr.Classification != "canceled" || obsErr.Retryable || obsErr.Dropped {
+		t.Fatalf("ObservationError = %#v", obsErr)
+	}
+	status = http.StatusAccepted
+	if err := exp.Flush(t.Context()); err != nil {
+		t.Fatalf("Flush() after cancellation error = %v", err)
+	}
+	if requests != 3 {
+		t.Fatalf("requests = %d, want 3", requests)
+	}
+}
+
+func TestFlushRedactionFailureUsesFlushOperation(t *testing.T) {
+	clearEnv(t)
+	status := http.StatusInternalServerError
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+	}))
+	defer server.Close()
+	exp, err := New(Config{
+		APIKey:             "key",
+		Endpoint:           server.URL,
+		MLApp:              "app",
+		MaxRetriesOverride: Int(0),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if err := exp.Export(t.Context(), []einoobs.Observation{endedRunObservation()}); err == nil {
+		t.Fatalf("Export() error = nil")
+	}
+	exp.redaction = redaction.Options{MaxSummaryBytes: -1}
+	err = exp.Flush(t.Context())
+	var obsErr einoobs.ObservationError
+	if !errors.As(err, &obsErr) {
+		t.Fatalf("Flush() error = %T, want ObservationError", err)
+	}
+	if obsErr.Operation != "flush" || obsErr.Classification != "redaction" || obsErr.Retryable || !obsErr.Dropped {
+		t.Fatalf("ObservationError = %#v", obsErr)
+	}
+}
+
+func TestPermanentExportFailureDropsPending(t *testing.T) {
+	clearEnv(t)
+	status := http.StatusForbidden
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.WriteHeader(status)
+	}))
+	defer server.Close()
+	exp, err := New(Config{
+		APIKey:             "key",
+		Endpoint:           server.URL,
+		MLApp:              "app",
+		MaxRetriesOverride: Int(0),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	err = exp.Export(t.Context(), []einoobs.Observation{endedRunObservation()})
+	var obsErr einoobs.ObservationError
+	if !errors.As(err, &obsErr) || obsErr.Retryable || !obsErr.Dropped {
+		t.Fatalf("Export() error = %#v, want dropped permanent ObservationError", err)
+	}
+	status = http.StatusAccepted
+	if err := exp.Flush(t.Context()); err != nil {
+		t.Fatalf("Flush() error = %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("requests = %d, want 1", requests)
+	}
+}
+
+func TestShutdownDrainsPendingAndRejectsNewExports(t *testing.T) {
+	clearEnv(t)
+	status := http.StatusInternalServerError
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.WriteHeader(status)
+	}))
+	defer server.Close()
+	exp, err := New(Config{
+		APIKey:             "key",
+		Endpoint:           server.URL,
+		MLApp:              "app",
+		MaxRetriesOverride: Int(0),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if err := exp.Export(t.Context(), []einoobs.Observation{endedRunObservation()}); err == nil {
+		t.Fatalf("Export() error = nil")
+	}
+
+	status = http.StatusAccepted
+	if err := exp.Shutdown(t.Context()); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests after shutdown = %d, want 2", requests)
+	}
+	err = exp.Export(t.Context(), []einoobs.Observation{endedRunObservationWithID("after-shutdown")})
+	var obsErr einoobs.ObservationError
+	if !errors.As(err, &obsErr) {
+		t.Fatalf("post-shutdown Export() error = %T, want ObservationError", err)
+	}
+	if obsErr.Operation != "export" || obsErr.Classification != "exporter_closed" || obsErr.Retryable || !obsErr.Dropped {
+		t.Fatalf("ObservationError = %#v", obsErr)
+	}
+	if err := exp.Flush(t.Context()); err != nil {
+		t.Fatalf("post-shutdown Flush() error = %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests after post-shutdown operations = %d, want 2", requests)
+	}
+}
+
+func TestFailedShutdownRetainsErrorAndDoesNotRetryOnFlush(t *testing.T) {
+	clearEnv(t)
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	exp, err := New(Config{
+		APIKey:             "key",
+		Endpoint:           server.URL,
+		MLApp:              "app",
+		MaxRetriesOverride: Int(0),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if err := exp.Export(t.Context(), []einoobs.Observation{endedRunObservation()}); err == nil {
+		t.Fatalf("Export() error = nil")
+	}
+	err = exp.Shutdown(t.Context())
+	if err == nil {
+		t.Fatalf("Shutdown() error = nil")
+	}
+	var obsErr einoobs.ObservationError
+	if !errors.As(err, &obsErr) || !obsErr.Retryable {
+		t.Fatalf("Shutdown() error = %#v, want retryable ObservationError", err)
+	}
+	if obsErr.Operation != "shutdown" {
+		t.Fatalf("Shutdown() operation = %q, want shutdown", obsErr.Operation)
+	}
+	if err := exp.Shutdown(t.Context()); err == nil {
+		t.Fatalf("second Shutdown() error = nil")
+	}
+	if err := exp.Flush(t.Context()); err == nil {
+		t.Fatalf("post-failed-shutdown Flush() error = nil")
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d, want 2", requests)
+	}
+}
+
 type recordingSleeper struct {
 	delays []time.Duration
 	err    error

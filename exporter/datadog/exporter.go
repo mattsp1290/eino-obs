@@ -15,6 +15,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	einoobs "github.com/mattsp1290/eino-obs"
@@ -76,6 +77,12 @@ type Exporter struct {
 	config     Config
 	client     *http.Client
 	ownsClient bool
+	redaction  redaction.Options
+
+	mu              sync.Mutex
+	pending         []einoobs.Observation
+	shutdown        bool
+	lastShutdownErr error
 }
 
 func New(config Config) (*Exporter, error) {
@@ -219,28 +226,87 @@ func (e *Exporter) Export(ctx context.Context, batch []einoobs.Observation) erro
 	if e == nil {
 		return nil
 	}
-	spans := make([]spanPayload, 0, len(batch))
-	for _, observation := range batch {
-		span, err := redaction.ApplySpan(internalrecorder.PublicObservationToSpan(observation), redaction.Options{})
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.shutdown {
+		return observationError("export", "exporter_closed", errors.New("Datadog exporter is shut down"), false, true)
+	}
+	e.pending = append(e.pending, batch...)
+	return e.drainLocked(ctx, "export")
+}
+
+func (e *Exporter) drainLocked(ctx context.Context, operation string) error {
+	if err := ctx.Err(); err != nil {
+		classification := classifyContextError(err)
+		return observationError(operation, classification, err, false, false)
+	}
+	prepared, skipped, err := e.preparePendingPayloads(operation)
+	if err != nil {
+		e.pending = compactPending(e.pending, skipped, nil)
+		return err
+	}
+	if len(prepared.groups) == 0 {
+		e.pending = compactPending(e.pending, skipped, nil)
+		return prepared.batchErr
+	}
+	delivered := map[int]bool{}
+	for _, group := range prepared.groups {
+		if err := e.postPayload(ctx, group.payload, operation); err != nil {
+			var obsErr einoobs.ObservationError
+			if errors.As(err, &obsErr) && obsErr.Retryable {
+				e.pending = compactPending(e.pending, skipped, delivered)
+				return err
+			}
+			e.pending = nil
+			return err
+		}
+		for _, index := range group.indexes {
+			delivered[index] = true
+		}
+	}
+	e.pending = compactPending(e.pending, skipped, delivered)
+	return prepared.batchErr
+}
+
+type preparedPayloads struct {
+	groups   []payloadGroup
+	batchErr error
+}
+
+type payloadGroup struct {
+	payload payload
+	indexes []int
+}
+
+type queuedSpan struct {
+	index int
+	span  spanPayload
+}
+
+func (e *Exporter) preparePendingPayloads(operation string) (preparedPayloads, map[int]bool, error) {
+	spans := make([]queuedSpan, 0, len(e.pending))
+	skipped := map[int]bool{}
+	for index, observation := range e.pending {
+		span, err := redaction.ApplySpan(internalrecorder.PublicObservationToSpan(observation), e.redaction)
 		if err != nil {
-			return observationError("export", "redaction", err, false, true)
+			skipped[index] = true
+			return preparedPayloads{}, skipped, observationError(operation, "redaction", err, false, true)
 		}
 		item, ok := mapSpan(e.config, span)
 		if !ok {
+			skipped[index] = true
 			continue
 		}
-		spans = append(spans, item)
+		spans = append(spans, queuedSpan{index: index, span: item})
 	}
 	if len(spans) == 0 {
-		return nil
+		return preparedPayloads{}, skipped, nil
 	}
-	payloads, batchErr := e.splitPayloads(spans)
-	for _, payload := range payloads {
-		if err := e.postPayload(ctx, payload, "export"); err != nil {
-			return err
-		}
+	groups, batchErr, dropped := e.splitPayloadGroups(spans)
+	for index := range dropped {
+		skipped[index] = true
 	}
-	return batchErr
+	return preparedPayloads{groups: groups, batchErr: batchErr}, skipped, nil
 }
 
 func (e *Exporter) validateCredentials(ctx context.Context) error {
@@ -284,36 +350,40 @@ func (e *Exporter) postPayload(ctx context.Context, payload payload, operation s
 	return lastErr
 }
 
-func (e *Exporter) splitPayloads(spans []spanPayload) ([]payload, error) {
+func (e *Exporter) splitPayloadGroups(spans []queuedSpan) ([]payloadGroup, error, map[int]bool) {
 	batchSize := e.config.BatchSize
 	if batchSize <= 0 {
 		batchSize = defaultBatchSize
 	}
-	out := make([]payload, 0, (len(spans)+batchSize-1)/batchSize)
-	current := payload{Spans: make([]spanPayload, 0, batchSize)}
+	out := make([]payloadGroup, 0, (len(spans)+batchSize-1)/batchSize)
+	current := payloadGroup{payload: payload{Spans: make([]spanPayload, 0, batchSize)}, indexes: make([]int, 0, batchSize)}
 	var batchErrs []error
+	dropped := map[int]bool{}
 	for _, span := range spans {
-		single := payload{Spans: []spanPayload{span}}
+		single := payload{Spans: []spanPayload{span.span}}
 		if payloadSize(single) > e.config.MaxPayloadBytes {
+			dropped[span.index] = true
 			batchErrs = append(batchErrs, observationError("batch", "payload_too_large", fmt.Errorf("Datadog span payload exceeds max payload bytes"), false, true))
 			continue
 		}
-		if len(current.Spans) == 0 {
-			current.Spans = append(current.Spans, span)
+		if len(current.payload.Spans) == 0 {
+			current.payload.Spans = append(current.payload.Spans, span.span)
+			current.indexes = append(current.indexes, span.index)
 			continue
 		}
-		candidate := payload{Spans: append(append([]spanPayload{}, current.Spans...), span)}
-		if len(current.Spans) >= batchSize || payloadSize(candidate) > e.config.MaxPayloadBytes {
+		candidate := payload{Spans: append(append([]spanPayload{}, current.payload.Spans...), span.span)}
+		if len(current.payload.Spans) >= batchSize || payloadSize(candidate) > e.config.MaxPayloadBytes {
 			out = append(out, current)
-			current = payload{Spans: []spanPayload{span}}
+			current = payloadGroup{payload: payload{Spans: []spanPayload{span.span}}, indexes: []int{span.index}}
 			continue
 		}
-		current.Spans = append(current.Spans, span)
+		current.payload.Spans = append(current.payload.Spans, span.span)
+		current.indexes = append(current.indexes, span.index)
 	}
-	if len(current.Spans) > 0 {
+	if len(current.payload.Spans) > 0 {
 		out = append(out, current)
 	}
-	return out, errors.Join(batchErrs...)
+	return out, errors.Join(batchErrs...), dropped
 }
 
 func payloadSize(payload payload) int {
@@ -322,6 +392,23 @@ func payloadSize(payload payload) int {
 		return defaultPayloadBytes + 1
 	}
 	return len(body)
+}
+
+func compactPending(pending []einoobs.Observation, skipped map[int]bool, delivered map[int]bool) []einoobs.Observation {
+	if len(pending) == 0 {
+		return nil
+	}
+	out := pending[:0]
+	for index, observation := range pending {
+		if skipped[index] || delivered[index] {
+			continue
+		}
+		out = append(out, observation)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func (e *Exporter) sendPayload(ctx context.Context, body []byte, operation string) error {
@@ -466,16 +553,34 @@ func (realSleeper) Sleep(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-func (e *Exporter) Flush(context.Context) error {
-	return nil
-}
-
-func (e *Exporter) Shutdown(context.Context) error {
-	if e == nil || e.client == nil || !e.ownsClient {
+func (e *Exporter) Flush(ctx context.Context) error {
+	if e == nil {
 		return nil
 	}
-	e.client.CloseIdleConnections()
-	return nil
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.shutdown {
+		return e.lastShutdownErr
+	}
+	return e.drainLocked(ctx, "flush")
+}
+
+func (e *Exporter) Shutdown(ctx context.Context) error {
+	if e == nil {
+		return nil
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.shutdown {
+		return e.lastShutdownErr
+	}
+	e.shutdown = true
+	err := e.drainLocked(ctx, "shutdown")
+	if e.client != nil && e.ownsClient {
+		e.client.CloseIdleConnections()
+	}
+	e.lastShutdownErr = err
+	return err
 }
 
 func Duration(value time.Duration) *time.Duration {
