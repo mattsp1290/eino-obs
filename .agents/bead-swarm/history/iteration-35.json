@@ -1,0 +1,40 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 35,
+  "branch": "bead-swarm/iteration-35-readme-api-overview",
+  "slug": "readme-api-overview",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "single-bead documentation iteration implemented directly by parent; independent reviewer subagents were used for review",
+  "selected_beads": ["eino-obs-6on.38"],
+  "beads_done": ["eino-obs-6on.38"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "User Path Review requested adding the missing exporter/fake import context to the README fake recorder snippet; fixed and approved in focused re-review."
+  ],
+  "reviews": [
+    {
+      "reviewer": "readme-accuracy-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-35-readme-api-overview-2026-06-26/readme-accuracy-review/"
+    },
+    {
+      "reviewer": "user-path-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-35-readme-api-overview-2026-06-26/user-path-review/"
+    }
+  ],
+  "status": "complete"
+}
