@@ -85,6 +85,39 @@ func TestRecorderCapacityDropsAndFlushClearsDirty(t *testing.T) {
 	}
 }
 
+func TestRecorderPreservesRecordOrderingAndInspectionState(t *testing.T) {
+	rec := New(Config{})
+	for i, id := range []string{"span-1", "span-2", "span-3"} {
+		span := model.NewSpan(model.ObservationIdentity{ID: id, TraceID: "trace-1"}, model.SpanKindRun, "run", time.Now())
+		span.SetAttr("index", int64(i))
+		if err := rec.Record(context.Background(), observationFromSpan(span)); err != nil {
+			t.Fatalf("Record(%s) error = %v", id, err)
+		}
+	}
+
+	snapshot := rec.Snapshot()
+	if snapshot.RecordCount != 3 || snapshot.OperationCounts["record"] != 3 {
+		t.Fatalf("counts = record:%d ops:%v", snapshot.RecordCount, snapshot.OperationCounts)
+	}
+	if len(snapshot.Recorded) != 3 {
+		t.Fatalf("recorded len = %d, want 3", len(snapshot.Recorded))
+	}
+	for i, got := range snapshot.Recorded {
+		wantID := []string{"span-1", "span-2", "span-3"}[i]
+		wantSequence := int64(i + 1)
+		if got.ID != wantID || got.Attributes["sequence"] != wantSequence || got.Attributes["index"] != int64(i) {
+			t.Fatalf("recorded[%d] = id:%q attrs:%#v", i, got.ID, got.Attributes)
+		}
+	}
+
+	snapshot.Recorded[0].Attributes["index"] = int64(99)
+	snapshot.OperationCounts["record"] = 99
+	again := rec.Snapshot()
+	if again.Recorded[0].Attributes["index"] != int64(0) || again.OperationCounts["record"] != 3 {
+		t.Fatalf("snapshot mutation changed recorder state: %#v", again)
+	}
+}
+
 func TestRecorderConcurrentRecordSnapshotAndReset(t *testing.T) {
 	rec := New(Config{})
 	var wg sync.WaitGroup
@@ -105,6 +138,39 @@ func TestRecorderConcurrentRecordSnapshotAndReset(t *testing.T) {
 	}()
 	wg.Wait()
 	_ = rec.Snapshot()
+}
+
+func TestRecorderConcurrentRecordsAreRaceSafeAndInspectable(t *testing.T) {
+	rec := New(Config{})
+	var wg sync.WaitGroup
+	for i := 0; i < 64; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			span := model.NewSpan(model.ObservationIdentity{ID: "span", TraceID: "trace"}, model.SpanKindRun, "run", time.Now())
+			span.SetAttr("worker", int64(i))
+			if err := rec.Record(context.Background(), observationFromSpan(span)); err != nil {
+				t.Errorf("Record(%d) error = %v", i, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	snapshot := rec.Snapshot()
+	if snapshot.RecordCount != 64 || len(snapshot.Recorded) != 64 || snapshot.OperationCounts["record"] != 64 {
+		t.Fatalf("snapshot after concurrent records = count:%d len:%d ops:%v", snapshot.RecordCount, len(snapshot.Recorded), snapshot.OperationCounts)
+	}
+	seen := map[int64]bool{}
+	for _, item := range snapshot.Recorded {
+		worker, ok := item.Attributes["worker"].(int64)
+		if !ok {
+			t.Fatalf("worker attr missing or wrong type: %#v", item.Attributes)
+		}
+		seen[worker] = true
+	}
+	if len(seen) != 64 {
+		t.Fatalf("seen workers = %d, want 64", len(seen))
+	}
 }
 
 func observationFromSpan(span model.Span) einoobs.Observation {
