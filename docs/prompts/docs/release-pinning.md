@@ -45,8 +45,8 @@ include the original commit SHA used to derive it.
 
 ## Release Response Format For `eino-agent`
 
-When this repository is ready for the first integration response, provide this
-record to `eino-agent`:
+When this repository is ready for the first tagged integration response,
+provide this record to `eino-agent`:
 
 ```yaml
 module: github.com/mattsp1290/eino-obs
@@ -62,6 +62,22 @@ consumer_record:
   go_module_require: github.com/mattsp1290/eino-obs v0.1.0
   source_commit: <full-40-character-commit-sha-that-was-tagged>
   release_notes: CHANGELOG.md#v010---unreleased
+```
+
+If `eino-agent` needs to integrate before `v0.1.0` exists, provide this
+temporary response instead:
+
+```yaml
+module: github.com/mattsp1290/eino-obs
+recommended_pin:
+  kind: commit
+  value: <full-40-character-commit-sha>
+  command: go get github.com/mattsp1290/eino-obs@<full-40-character-commit-sha>
+consumer_record:
+  go_module_require: github.com/mattsp1290/eino-obs <go-pseudo-version-from-go-list>
+  source_commit: <full-40-character-commit-sha>
+  release_notes: CHANGELOG.md#v010---unreleased
+  replace_with: v0.1.0
 ```
 
 For the final tagged response, replace `release_notes` with the dated
