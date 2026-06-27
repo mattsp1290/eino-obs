@@ -1,0 +1,52 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 50,
+  "branch": "bead-swarm/iteration-50-streaming-model-turn",
+  "slug": "streaming-model-turn",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Parent implemented the selected focused streaming bead directly and used two independent reviewer subagents plus targeted re-review subagents.",
+  "selected_beads": ["eino-obs-6on.21"],
+  "beads_done": ["eino-obs-6on.21"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "implementation_summary": [
+    "Added public streaming model turn helpers for start, chunk, first token, successful end, partial failure, cancellation, usage, latency, retry attempt, redaction summaries, and correlation metadata.",
+    "Embedded stream chunk, first-token, and cancellation observations as stream span events so recorder and exporter adapters preserve them as model events rather than top-level spans.",
+    "Updated recorder, no-network, and Datadog conversion coverage to preserve stream events, cancellation metadata, explicit zero token counts, and event error semantics."
+  ],
+  "validation": [
+    "go test ./...: pass",
+    "go build ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check: pass",
+    "schema re-review go test ./...: pass",
+    "schema re-review git diff --check main...HEAD: pass",
+    "lifecycle re-review go test ./...: pass",
+    "lifecycle re-review go test -race ./...: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial schema review requested moving stream chunk, first-token, and cancellation observations off top-level public export and into stream span events."
+  ],
+  "reviews": [
+    {
+      "reviewer": "streaming-schema-semantics-review",
+      "initial_verdict": "REQUEST_CHANGES",
+      "final_verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-50-streaming-model-turn-2026-06-27/streaming-schema-semantics-review/05-re-review.md"
+    },
+    {
+      "reviewer": "streaming-lifecycle-robustness-review",
+      "initial_verdict": "APPROVE",
+      "final_verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-50-streaming-model-turn-2026-06-27/streaming-lifecycle-robustness-review/05-re-review.md"
+    }
+  ],
+  "status": "complete"
+}
