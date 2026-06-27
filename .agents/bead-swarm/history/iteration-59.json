@@ -1,0 +1,55 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 59,
+  "branch": "bead-swarm/iteration-59-prepare-changelog-and-v0-1-0-release-not",
+  "slug": "prepare-changelog-and-v0-1-0-release-not",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "orchestrator-subagent",
+  "degraded_reason": null,
+  "selected_beads": [
+    "eino-obs-6on.41"
+  ],
+  "beads_done": [
+    "eino-obs-6on.41"
+  ],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "implementation_summary": [
+    "Added CHANGELOG.md with v0.1.0 release notes.",
+    "Release notes summarize the API, redaction defaults, no-network and fake recorder behavior, selected Datadog exporter, validation coverage, examples/docs, and known limitations.",
+    "Applied non-blocking review suggestions to make the selected exporter explicit and make the validation statement less tied to a one-off local run."
+  ],
+  "validation": [
+    "make check: pass",
+    "go build ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": false,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [],
+  "suggestion_summary": [
+    "Replace Unreleased with the final release date when tagging v0.1.0.",
+    "Consider using README as the durable source for supported Datadog sites."
+  ],
+  "review_fix_summary": [
+    "Updated the Datadog section heading to Selected Datadog Exporter.",
+    "Reworded the validation bullet to describe documented release-readiness gates."
+  ],
+  "reviews": [
+    {
+      "reviewer": "release-notes-coverage-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-59-prepare-changelog-and-v0-1-0-release-not-2026-06-27/release-notes-coverage-review/04-action-items.md"
+    },
+    {
+      "reviewer": "changelog-accuracy-review",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-59-prepare-changelog-and-v0-1-0-release-not-2026-06-27/changelog-accuracy-review/04-action-items.md"
+    }
+  ],
+  "status": "complete"
+}
