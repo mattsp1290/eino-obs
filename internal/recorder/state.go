@@ -14,6 +14,24 @@ import (
 type Config struct {
 	Redaction redaction.Options
 	Capacity  int
+	Failures  FailurePlan
+}
+
+type FailurePlan struct {
+	Export        *Failure
+	Flush         *Failure
+	Shutdown      *Failure
+	ExportRules   []Failure
+	FlushRules    []Failure
+	ShutdownRules []Failure
+}
+
+type Failure struct {
+	AtCall         int64
+	Classification string
+	Message        string
+	Retryable      bool
+	Dropped        bool
 }
 
 type State struct {
@@ -22,6 +40,7 @@ type State struct {
 	epoch     int64
 	redaction redaction.Options
 	capacity  int
+	failures  FailurePlan
 
 	recorded []model.Span
 	pending  []model.Span
@@ -47,13 +66,14 @@ func New(config Config) *State {
 	return &State{
 		redaction:        config.Redaction,
 		capacity:         config.Capacity,
+		failures:         cloneFailurePlan(config.Failures),
 		operationCounts:  map[string]int64{},
 		errorHistorySize: 256,
 	}
 }
 
 func (s *State) Record(ctx context.Context, span model.Span) error {
-	epoch := s.beginOperation("record")
+	epoch, _ := s.beginOperation("record")
 
 	if err := ctx.Err(); err != nil {
 		return s.recordErrorAtEpoch(epoch, "record", "canceled", err, true, false)
@@ -80,7 +100,7 @@ func (s *State) Record(ctx context.Context, span model.Span) error {
 }
 
 func (s *State) Export(ctx context.Context, batch []model.Span) error {
-	epoch := s.beginOperation("export")
+	epoch, call := s.beginOperation("export")
 
 	if err := ctx.Err(); err != nil {
 		return s.recordErrorAtEpoch(epoch, "export", "canceled", err, true, false)
@@ -92,6 +112,9 @@ func (s *State) Export(ctx context.Context, batch []model.Span) error {
 			return s.recordErrorAtEpoch(epoch, "redact", "redaction", err, false, true)
 		}
 		redacted = append(redacted, item)
+	}
+	if failure := s.failure("export", call); failure != nil {
+		return s.recordInjectedExportErrorAtEpoch(epoch, *failure, redacted)
 	}
 
 	s.mu.Lock()
@@ -125,12 +148,15 @@ func (s *State) Flush(ctx context.Context) error {
 	s.mu.Lock()
 	epoch := s.epoch
 	s.flushCount++
-	s.incrementLocked("flush")
+	call := s.incrementLocked("flush")
 	shutdownErr := cloneErrorPtr(s.lastShutdownErr)
 	s.mu.Unlock()
 
 	if err := ctx.Err(); err != nil {
 		return s.recordFlushErrorAtEpoch(epoch, "canceled", err, true)
+	}
+	if failure := s.failure("flush", call); failure != nil {
+		return s.recordInjectedErrorAtEpoch(epoch, "flush", *failure, true)
 	}
 	if shutdownErr != nil {
 		return *shutdownErr
@@ -140,6 +166,47 @@ func (s *State) Flush(ctx context.Context) error {
 	defer s.mu.Unlock()
 	if epoch != s.epoch {
 		return nil
+	}
+	if len(s.pending) > 0 {
+		s.exportCount++
+		exportCall := s.incrementLocked("export")
+		if failure := cloneMatchingFailure(s.failures.Export, s.failures.ExportRules, exportCall); failure != nil {
+			obsErr := injectedObservationError("export", *failure)
+			if !obsErr.Retryable || obsErr.Dropped {
+				for _, span := range s.pending {
+					s.dropLocked(span, "injected_failure", obsErr)
+				}
+				s.pending = nil
+			}
+			s.lastFlushError = &obsErr
+			s.rememberErrorLocked(obsErr)
+			s.dirty = true
+			return obsErr
+		}
+		var exportErrs []error
+		var firstErr *exporter.ObservationError
+		for _, span := range s.pending {
+			if s.shouldDropLocked() {
+				obsErr := observationError("flush", "capacity", errors.New("fake exporter capacity exceeded"), false, true)
+				s.dropLocked(span, "capacity", obsErr)
+				exportErrs = append(exportErrs, obsErr)
+				if firstErr == nil {
+					errCopy := obsErr
+					firstErr = &errCopy
+				}
+				continue
+			}
+			s.recorded = append(s.recorded, span.Clone())
+		}
+		s.pending = nil
+		if len(exportErrs) > 0 {
+			s.lastFlushError = firstErr
+			s.dirty = true
+			return errors.Join(exportErrs...)
+		}
+		s.dirty = false
+		s.lastFlushError = nil
+		return errors.Join(exportErrs...)
 	}
 	s.pending = nil
 	s.dirty = false
@@ -151,16 +218,15 @@ func (s *State) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	epoch := s.epoch
 	s.shutdownCount++
-	s.incrementLocked("shutdown")
-	if s.shutdown {
-		err := cloneErrorPtr(s.lastShutdownErr)
+	call := s.incrementLocked("shutdown")
+	alreadyShutdown := s.shutdown
+	if !s.shutdown {
+		s.shutdown = true
+	}
+	if alreadyShutdown && s.lastShutdownErr == nil {
 		s.mu.Unlock()
-		if err != nil {
-			return *err
-		}
 		return nil
 	}
-	s.shutdown = true
 	s.mu.Unlock()
 
 	if err := ctx.Err(); err != nil {
@@ -175,12 +241,16 @@ func (s *State) Shutdown(ctx context.Context) error {
 		s.dirty = true
 		return obsErr
 	}
+	if failure := s.failure("shutdown", call); failure != nil {
+		return s.recordInjectedErrorAtEpoch(epoch, "shutdown", *failure, false)
+	}
 
 	s.mu.Lock()
 	if epoch != s.epoch {
 		s.mu.Unlock()
 		return nil
 	}
+	s.shutdown = true
 	s.pending = nil
 	s.dirty = false
 	s.lastShutdownErr = nil
@@ -234,7 +304,35 @@ func (s *State) Reset() {
 	s.droppedErrHist = 0
 }
 
-func (s *State) beginOperation(operation string) int64 {
+func (s *State) failure(operation string, call int64) *Failure {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch operation {
+	case "export":
+		return cloneMatchingFailure(s.failures.Export, s.failures.ExportRules, call)
+	case "flush":
+		return cloneMatchingFailure(s.failures.Flush, s.failures.FlushRules, call)
+	case "shutdown":
+		return cloneMatchingFailure(s.failures.Shutdown, s.failures.ShutdownRules, call)
+	default:
+		return nil
+	}
+}
+
+func cloneMatchingFailure(failure *Failure, rules []Failure, call int64) *Failure {
+	for _, rule := range rules {
+		if rule.AtCall <= 0 || rule.AtCall == call {
+			out := rule
+			return &out
+		}
+	}
+	if failure == nil || (failure.AtCall > 0 && failure.AtCall != call) {
+		return nil
+	}
+	return cloneFailurePtr(failure)
+}
+
+func (s *State) beginOperation(operation string) (int64, int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	epoch := s.epoch
@@ -244,8 +342,8 @@ func (s *State) beginOperation(operation string) int64 {
 	case "export":
 		s.exportCount++
 	}
-	s.incrementLocked(operation)
-	return epoch
+	call := s.incrementLocked(operation)
+	return epoch, call
 }
 
 func (s *State) recordFlushErrorAtEpoch(epoch int64, classification string, err error, retryable bool) error {
@@ -256,6 +354,47 @@ func (s *State) recordFlushErrorAtEpoch(epoch int64, classification string, err 
 		return nil
 	}
 	s.lastFlushError = &obsErr
+	s.rememberErrorLocked(obsErr)
+	s.dirty = true
+	return obsErr
+}
+
+func (s *State) recordInjectedErrorAtEpoch(epoch int64, operation string, failure Failure, flush bool) error {
+	obsErr := injectedObservationError(operation, failure)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if epoch != s.epoch {
+		return nil
+	}
+	if flush {
+		s.lastFlushError = &obsErr
+	}
+	if operation == "shutdown" {
+		s.lastShutdownErr = &obsErr
+	}
+	s.rememberErrorLocked(obsErr)
+	s.dirty = true
+	return obsErr
+}
+
+func (s *State) recordInjectedExportErrorAtEpoch(epoch int64, failure Failure, spans []model.Span) error {
+	obsErr := injectedObservationError("export", failure)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if epoch != s.epoch {
+		return nil
+	}
+	if obsErr.Retryable && !obsErr.Dropped {
+		for _, span := range spans {
+			s.sequence++
+			s.pending = append(s.pending, stampSpan(span, s.sequence))
+		}
+	} else {
+		for _, span := range spans {
+			s.sequence++
+			s.dropLocked(stampSpan(span, s.sequence), "injected_failure", obsErr)
+		}
+	}
 	s.rememberErrorLocked(obsErr)
 	s.dirty = true
 	return obsErr
@@ -295,11 +434,12 @@ func (s *State) rememberErrorLocked(err exporter.ObservationError) {
 	s.errors = append(s.errors, err)
 }
 
-func (s *State) incrementLocked(operation string) {
+func (s *State) incrementLocked(operation string) int64 {
 	if s.operationCounts == nil {
 		s.operationCounts = map[string]int64{}
 	}
 	s.operationCounts[operation]++
+	return s.operationCounts[operation]
 }
 
 func stampSpan(span model.Span, sequence int64) model.Span {
@@ -319,6 +459,25 @@ func observationError(operation string, classification string, err error, retrya
 		Message:        safeErrorMessage(err),
 		Retryable:      retryable,
 		Dropped:        dropped,
+	}
+}
+
+func injectedObservationError(operation string, failure Failure) exporter.ObservationError {
+	classification := failure.Classification
+	if classification == "" {
+		classification = "injected_failure"
+	}
+	message := failure.Message
+	if message == "" {
+		message = "fake recorder " + operation + " failure"
+	}
+	return exporter.ObservationError{
+		Operation:      operation,
+		Classification: classification,
+		Type:           "error",
+		Message:        message,
+		Retryable:      failure.Retryable,
+		Dropped:        failure.Dropped,
 	}
 }
 
@@ -452,6 +611,34 @@ func cloneErrorPtr(err *exporter.ObservationError) *exporter.ObservationError {
 	}
 	out := *err
 	return &out
+}
+
+func cloneFailurePlan(plan FailurePlan) FailurePlan {
+	return FailurePlan{
+		Export:        cloneFailurePtr(plan.Export),
+		Flush:         cloneFailurePtr(plan.Flush),
+		Shutdown:      cloneFailurePtr(plan.Shutdown),
+		ExportRules:   cloneFailures(plan.ExportRules),
+		FlushRules:    cloneFailures(plan.FlushRules),
+		ShutdownRules: cloneFailures(plan.ShutdownRules),
+	}
+}
+
+func cloneFailurePtr(failure *Failure) *Failure {
+	if failure == nil {
+		return nil
+	}
+	out := *failure
+	return &out
+}
+
+func cloneFailures(failures []Failure) []Failure {
+	if failures == nil {
+		return nil
+	}
+	out := make([]Failure, len(failures))
+	copy(out, failures)
+	return out
 }
 
 func cloneCounts(counts map[string]int64) map[string]int64 {
