@@ -1,9 +1,13 @@
 package datadog
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -13,6 +17,9 @@ import (
 	"time"
 
 	einoobs "github.com/mattsp1290/eino-obs"
+	"github.com/mattsp1290/eino-obs/internal/model"
+	internalrecorder "github.com/mattsp1290/eino-obs/internal/recorder"
+	"github.com/mattsp1290/eino-obs/internal/redaction"
 )
 
 const (
@@ -195,11 +202,107 @@ func (e *Exporter) HTTPClient() *http.Client {
 	return e.client
 }
 
-func (e *Exporter) Export(context.Context, []einoobs.Observation) error {
+func (e *Exporter) Export(ctx context.Context, batch []einoobs.Observation) error {
+	if e == nil {
+		return nil
+	}
+	spans := make([]model.Span, 0, len(batch))
+	for _, observation := range batch {
+		span, err := redaction.ApplySpan(internalrecorder.PublicObservationToSpan(observation), redaction.Options{})
+		if err != nil {
+			return exportError("redaction", err, false, true)
+		}
+		spans = append(spans, span)
+	}
+	payload := buildPayload(e.config, spans)
+	if len(payload.Spans) == 0 {
+		return nil
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return exportError("exporter_failure", err, false, true)
+	}
+	if !e.config.DisableCompression {
+		var compressed bytes.Buffer
+		gzipWriter := gzip.NewWriter(&compressed)
+		if _, err := gzipWriter.Write(body); err != nil {
+			return exportError("exporter_failure", err, false, true)
+		}
+		if err := gzipWriter.Close(); err != nil {
+			return exportError("exporter_failure", err, false, true)
+		}
+		body = compressed.Bytes()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.config.Endpoint, bytes.NewReader(body))
+	if err != nil {
+		return exportError("invalid_config", err, false, true)
+	}
+	req.Header.Set("DD-API-KEY", e.config.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "eino-obs/"+firstConfigValue(e.config.Version, unknownClientVersion))
+	if e.config.DisableCompression {
+		req.Header.Set("Accept-Encoding", "identity")
+	} else {
+		req.Header.Set("Content-Encoding", "gzip")
+	}
+	resp, err := e.client.Do(req)
+	if err != nil {
+		classification, retryable, dropped := classifyTransportError(ctx, err)
+		return exportError(classification, err, retryable, dropped)
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	classification, retryable, dropped := classifyStatus(resp.StatusCode)
+	return exportError(classification, fmt.Errorf("Datadog intake returned HTTP %d", resp.StatusCode), retryable, dropped)
+}
+
+func classifyTransportError(ctx context.Context, err error) (string, bool, bool) {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return "canceled", false, false
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return "timeout", true, false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "timeout", true, false
+	}
+	var temporary interface{ Temporary() bool }
+	if errors.As(err, &temporary) && temporary.Temporary() {
+		return "exporter_failure", true, false
+	}
+	return "exporter_failure", false, true
+}
+
+func classifyStatus(status int) (string, bool, bool) {
+	switch {
+	case status == http.StatusRequestTimeout:
+		return "timeout", true, false
+	case status == http.StatusTooManyRequests:
+		return "rate_limit", true, false
+	case status >= 500 && status <= 599:
+		return "exporter_failure", true, false
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		return "auth", false, true
+	case status == http.StatusRequestEntityTooLarge:
+		return "payload_too_large", false, true
+	case status == http.StatusNotFound || status == http.StatusBadRequest:
+		return "invalid_config", false, true
+	default:
+		return "exporter_failure", false, true
+	}
+}
+
+func exportError(classification string, err error, retryable bool, dropped bool) einoobs.ObservationError {
 	return einoobs.ObservationError{
 		Operation:      "export",
-		Classification: "exporter_failure",
-		Dropped:        true,
+		Classification: classification,
+		Err:            err,
+		Retryable:      retryable,
+		Dropped:        dropped,
 	}
 }
 

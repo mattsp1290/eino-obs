@@ -1,7 +1,10 @@
 package datadog
 
 import (
+	"compress/gzip"
+	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -266,6 +269,271 @@ func TestConstructorDoesNotDialEndpoint(t *testing.T) {
 		MLApp:    "app",
 	}); err != nil {
 		t.Fatalf("New() unexpectedly dialed closed endpoint or failed config: %v", err)
+	}
+}
+
+func TestExportPostsMappedPayload(t *testing.T) {
+	clearEnv(t)
+	var got struct {
+		Method    string
+		APIKey    string
+		UserAgent string
+		Path      string
+		Content   string
+		Encoding  string
+		Payload   payload
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got.Method = r.Method
+		got.APIKey = r.Header.Get("DD-API-KEY")
+		got.UserAgent = r.Header.Get("User-Agent")
+		got.Path = r.URL.Path
+		got.Content = r.Header.Get("Content-Type")
+		got.Encoding = r.Header.Get("Content-Encoding")
+		body := io.Reader(r.Body)
+		if got.Encoding == "gzip" {
+			gzipReader, err := gzip.NewReader(r.Body)
+			if err != nil {
+				t.Fatalf("gzip.NewReader() error = %v", err)
+			}
+			defer gzipReader.Close()
+			body = gzipReader
+		}
+		if err := json.NewDecoder(body).Decode(&got.Payload); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+	exp, err := New(Config{APIKey: "key", Endpoint: server.URL, MLApp: "app", Version: "v1"})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	start := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)
+
+	err = exp.Export(t.Context(), []einoobs.Observation{{
+		ID:            "span-1",
+		TraceID:       "trace-1",
+		Kind:          "run",
+		Name:          "run",
+		Status:        "ok",
+		Timestamp:     start,
+		Duration:      time.Millisecond,
+		DurationKnown: true,
+		Attributes:    map[string]any{"correlation.session_id": "session-1"},
+	}})
+	if err != nil {
+		t.Fatalf("Export() error = %v", err)
+	}
+	if got.Method != http.MethodPost ||
+		got.Path != intakePath ||
+		got.APIKey != "key" ||
+		got.UserAgent != "eino-obs/v1" ||
+		got.Content != "application/json" ||
+		got.Encoding != "gzip" {
+		t.Fatalf("request metadata = %#v", got)
+	}
+	if len(got.Payload.Spans) != 1 {
+		t.Fatalf("payload spans = %d, want 1", len(got.Payload.Spans))
+	}
+	span := got.Payload.Spans[0]
+	if span.SpanID != "span-1" || span.TraceID != "trace-1" || span.MLApp != "app" || span.Meta["kind"] != "workflow" {
+		t.Fatalf("payload span = %#v", span)
+	}
+}
+
+func TestExportAppliesRedactionBeforePost(t *testing.T) {
+	clearEnv(t)
+	var got payload
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gzipReader, err := gzip.NewReader(r.Body)
+		if err != nil {
+			t.Fatalf("gzip.NewReader() error = %v", err)
+		}
+		defer gzipReader.Close()
+		if err := json.NewDecoder(gzipReader).Decode(&got); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+	exp, err := New(Config{APIKey: "key", Endpoint: server.URL, MLApp: "app"})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	err = exp.Export(t.Context(), []einoobs.Observation{{
+		ID:            "span-1",
+		TraceID:       "trace-1",
+		Kind:          "run",
+		Name:          "run",
+		Status:        "ok",
+		Timestamp:     time.Now().UTC(),
+		Duration:      time.Millisecond,
+		DurationKnown: true,
+		Attributes: map[string]any{
+			"metadata.api_key": "secret",
+			"prompt.text":      "raw prompt",
+			"metadata.safe":    "safe",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("Export() error = %v", err)
+	}
+	if len(got.Spans) != 1 {
+		t.Fatalf("spans = %d, want 1", len(got.Spans))
+	}
+	meta := got.Spans[0].Meta
+	if _, ok := meta["metadata.api_key"]; ok {
+		t.Fatalf("sensitive metadata leaked: %#v", meta)
+	}
+	if _, ok := meta["prompt.text"]; ok {
+		t.Fatalf("raw prompt leaked: %#v", meta)
+	}
+	if meta["metadata.safe"] != "safe" {
+		t.Fatalf("safe metadata = %#v", meta)
+	}
+	if _, ok := meta["metadata.redaction.records"]; !ok {
+		t.Fatalf("redaction records missing: %#v", meta)
+	}
+}
+
+func TestExportSkipsActiveSpans(t *testing.T) {
+	clearEnv(t)
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requests++
+	}))
+	defer server.Close()
+	exp, err := New(Config{APIKey: "key", Endpoint: server.URL, MLApp: "app"})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	err = exp.Export(t.Context(), []einoobs.Observation{{
+		ID:        "span-1",
+		TraceID:   "trace-1",
+		Kind:      "run",
+		Name:      "run",
+		Status:    "ok",
+		Timestamp: time.Now(),
+	}})
+	if err != nil {
+		t.Fatalf("Export() error = %v", err)
+	}
+	if requests != 0 {
+		t.Fatalf("requests = %d, want 0", requests)
+	}
+}
+
+func TestExportClassifiesHTTPStatus(t *testing.T) {
+	clearEnv(t)
+	tests := []struct {
+		name           string
+		status         int
+		classification string
+		retryable      bool
+		dropped        bool
+	}{
+		{name: "auth", status: http.StatusForbidden, classification: "auth", dropped: true},
+		{name: "rate limit", status: http.StatusTooManyRequests, classification: "rate_limit", retryable: true},
+		{name: "server", status: http.StatusInternalServerError, classification: "exporter_failure", retryable: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tt.status)
+			}))
+			defer server.Close()
+			exp, err := New(Config{APIKey: "key", Endpoint: server.URL, MLApp: "app"})
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			err = exp.Export(t.Context(), []einoobs.Observation{endedRunObservation()})
+			var obsErr einoobs.ObservationError
+			if !errors.As(err, &obsErr) {
+				t.Fatalf("Export() error = %T, want ObservationError", err)
+			}
+			if obsErr.Operation != "export" || obsErr.Classification != tt.classification || obsErr.Retryable != tt.retryable || obsErr.Dropped != tt.dropped {
+				t.Fatalf("ObservationError = %#v", obsErr)
+			}
+		})
+	}
+}
+
+func TestExportClassifiesTransportErrors(t *testing.T) {
+	clearEnv(t)
+	tests := []struct {
+		name           string
+		err            error
+		classification string
+		retryable      bool
+		dropped        bool
+	}{
+		{name: "timeout", err: timeoutErr{}, classification: "timeout", retryable: true},
+		{name: "temporary", err: temporaryErr{}, classification: "exporter_failure", retryable: true},
+		{name: "permanent", err: errors.New("permanent"), classification: "exporter_failure", dropped: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			exp, err := New(Config{
+				APIKey:     "key",
+				Endpoint:   "https://example.test",
+				MLApp:      "app",
+				HTTPClient: &http.Client{Transport: errorTransport{err: tt.err}},
+			})
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			err = exp.Export(t.Context(), []einoobs.Observation{endedRunObservation()})
+			var obsErr einoobs.ObservationError
+			if !errors.As(err, &obsErr) {
+				t.Fatalf("Export() error = %T, want ObservationError", err)
+			}
+			if obsErr.Classification != tt.classification || obsErr.Retryable != tt.retryable || obsErr.Dropped != tt.dropped {
+				t.Fatalf("ObservationError = %#v", obsErr)
+			}
+		})
+	}
+}
+
+type errorTransport struct {
+	err error
+}
+
+func (t errorTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, t.err
+}
+
+type timeoutErr struct{}
+
+func (timeoutErr) Error() string   { return "timeout" }
+func (timeoutErr) Timeout() bool   { return true }
+func (timeoutErr) Temporary() bool { return true }
+
+type temporaryErr struct{}
+
+func (temporaryErr) Error() string   { return "temporary" }
+func (temporaryErr) Timeout() bool   { return false }
+func (temporaryErr) Temporary() bool { return true }
+
+func TestDatadogExporterDoesNotAffectDefaultNoNetworkMode(t *testing.T) {
+	observer := einoobs.New(einoobs.Config{})
+	if _, ok := observer.Exporter().(*einoobs.NoNetworkExporter); !ok {
+		t.Fatalf("default exporter = %T, want no-network exporter", observer.Exporter())
+	}
+}
+
+func endedRunObservation() einoobs.Observation {
+	return einoobs.Observation{
+		ID:            "span-1",
+		TraceID:       "trace-1",
+		Kind:          "run",
+		Name:          "run",
+		Status:        "ok",
+		Timestamp:     time.Now().UTC(),
+		Duration:      time.Millisecond,
+		DurationKnown: true,
 	}
 }
 
