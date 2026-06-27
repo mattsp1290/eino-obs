@@ -57,6 +57,7 @@ type ObservationError struct {
 	Operation      string
 	Classification string
 	Type           string
+	Code           string
 	Message        string
 	Retryable      bool
 	Dropped        bool

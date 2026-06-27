@@ -239,10 +239,66 @@ func TestNoNetworkSnapshotExposesRedactionMetadataWithoutCredentials(t *testing.
 	assertNoSnapshotLeak(t, observer.Snapshot(), rawPrompt, apiSecret, toolPayload, attachmentPayload, reasoningPayload)
 }
 
+func TestNoNetworkSnapshotDoesNotRestoreRedactedErrorCause(t *testing.T) {
+	const secret = "ENCRYPTED_REASONING_ERROR_DO_NOT_LEAK_6on18"
+	observer := New(Config{})
+	err := observer.Exporter().Export(context.Background(), []Observation{{
+		ID:        "span-1",
+		TraceID:   "trace-1",
+		Kind:      "run",
+		Name:      "run",
+		Status:    "error",
+		Timestamp: time.Now(),
+		Error: &ObservationError{
+			Operation:      "encrypted_reasoning",
+			Classification: "runtime",
+			Err:            secretErr(secret),
+			Retryable:      false,
+		},
+		Events: []Observation{{
+			ID:        "event-1",
+			ParentID:  "span-1",
+			TraceID:   "trace-1",
+			Kind:      "error",
+			Name:      "error",
+			Status:    "error",
+			Timestamp: time.Now(),
+			Error: &ObservationError{
+				Operation:      "encrypted_reasoning",
+				Classification: "runtime",
+				Err:            secretErr(secret),
+				Retryable:      false,
+			},
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("Export() error = %v", err)
+	}
+
+	snapshot := observer.Snapshot()
+	spanErr := snapshot.Observations[0].Error
+	eventErr := snapshot.Observations[0].Events[0].Error
+	if spanErr == nil || spanErr.Err != nil || strings.Contains(spanErr.Error(), secret) {
+		t.Fatalf("span error restored redacted cause: %#v", spanErr)
+	}
+	if eventErr == nil || eventErr.Err != nil || strings.Contains(eventErr.Error(), secret) {
+		t.Fatalf("event error restored redacted cause: %#v", eventErr)
+	}
+	assertNoSnapshotLeak(t, snapshot, secret)
+	assertPublicRedactionRecord(t, snapshot.Observations[0].Redaction, "error.message", "encrypted_reasoning_forbidden")
+	assertPublicRedactionRecord(t, snapshot.Observations[0].Events[0].Redaction, "error.message", "encrypted_reasoning_forbidden")
+}
+
 type errSentinel struct{}
 
 func (errSentinel) Error() string {
 	return "sentinel"
+}
+
+type secretErr string
+
+func (e secretErr) Error() string {
+	return string(e)
 }
 
 func assertPublicRedactionRecord(t *testing.T, records []RedactionRecord, path string, reason string) {

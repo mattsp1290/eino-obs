@@ -7,6 +7,7 @@ import (
 	"time"
 
 	einoobs "github.com/mattsp1290/eino-obs"
+	internalexporter "github.com/mattsp1290/eino-obs/internal/exporter"
 	"github.com/mattsp1290/eino-obs/internal/model"
 )
 
@@ -170,6 +171,51 @@ func TestRecorderConcurrentRecordsAreRaceSafeAndInspectable(t *testing.T) {
 	}
 	if len(seen) != 64 {
 		t.Fatalf("seen workers = %d, want 64", len(seen))
+	}
+}
+
+func TestSnapshotPreservesNormalizedErrorCode(t *testing.T) {
+	retryable := false
+	dropped := true
+	span := model.NewSpan(model.ObservationIdentity{ID: "span-1", TraceID: "trace-1"}, model.SpanKindRun, "run", time.Now())
+	span.Error = &model.ObservationError{
+		Operation:      "run",
+		Classification: "runtime",
+		Type:           "provider",
+		Code:           "runtime.failure",
+		Message:        "safe",
+		Retryable:      &retryable,
+		Dropped:        &dropped,
+	}
+	event := model.NewEvent(model.ObservationIdentity{ID: "event-1", ParentID: "span-1", TraceID: "trace-1"}, model.EventError, time.Now())
+	event.Error = &model.ObservationError{
+		Operation:      "event",
+		Classification: "runtime",
+		Code:           "event.failure",
+		Retryable:      &retryable,
+	}
+	span.Events = []model.Event{event}
+
+	snapshot := SnapshotFromInternal(internalexporter.Snapshot{
+		Recorded: []model.Span{span},
+		Errors: []internalexporter.ObservationError{{
+			Operation:      "flush",
+			Classification: "runtime",
+			Type:           "provider",
+			Code:           "flush.failure",
+			Message:        "safe",
+			Retryable:      true,
+		}},
+	})
+
+	if got := snapshot.Recorded[0].Error.Code; got != "runtime.failure" {
+		t.Fatalf("span error code = %q, want runtime.failure", got)
+	}
+	if got := snapshot.Recorded[0].Events[0].Error.Code; got != "event.failure" {
+		t.Fatalf("event error code = %q, want event.failure", got)
+	}
+	if got := snapshot.Errors[0].Code; got != "flush.failure" {
+		t.Fatalf("snapshot error code = %q, want flush.failure", got)
 	}
 }
 

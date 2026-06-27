@@ -147,6 +147,7 @@ func publicObservationToSpan(observation Observation) (model.Span, error) {
 			Operation:      observation.Error.Operation,
 			Classification: observation.Error.Classification,
 			Message:        observation.Error.Error(),
+			Cause:          observation.Error.Err,
 			Retryable:      boolPtr(observation.Error.Retryable),
 			Dropped:        boolPtr(observation.Error.Dropped),
 		}
@@ -175,6 +176,7 @@ func publicObservationToEvent(observation Observation) model.Event {
 			Operation:      observation.Error.Operation,
 			Classification: observation.Error.Classification,
 			Message:        observation.Error.Error(),
+			Cause:          observation.Error.Err,
 			Retryable:      boolPtr(observation.Error.Retryable),
 			Dropped:        boolPtr(observation.Error.Dropped),
 		}
@@ -268,7 +270,9 @@ func modelErrorToPublic(err *model.ObservationError) *ObservationError {
 	out := &ObservationError{
 		Operation:      err.Operation,
 		Classification: err.Classification,
-		Err:            nil,
+	}
+	if err.Message != "" && err.Cause != nil && err.Message == err.Cause.Error() {
+		out.Err = err.Cause
 	}
 	if err.Retryable != nil {
 		out.Retryable = *err.Retryable

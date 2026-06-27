@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -251,6 +252,100 @@ func TestErrorSpanRequiresExplicitRetryable(t *testing.T) {
 	}
 }
 
+func TestNormalizeObservationErrorPreservesCauseAndDefaults(t *testing.T) {
+	cause := errSentinel{}
+
+	obsErr := NormalizeObservationError("export", "timeout", cause, true)
+
+	if obsErr.Operation != "export" ||
+		obsErr.Classification != "timeout" ||
+		obsErr.Type != "github.com/mattsp1290/eino-obs/internal/model.errSentinel" ||
+		obsErr.Message != "sentinel failure" ||
+		obsErr.Cause != cause ||
+		obsErr.Retryable == nil || !*obsErr.Retryable ||
+		obsErr.Canceled == nil || *obsErr.Canceled ||
+		obsErr.Dropped == nil || *obsErr.Dropped {
+		t.Fatalf("NormalizeObservationError() = %#v", obsErr)
+	}
+	if !errors.Is(obsErr, cause) {
+		t.Fatalf("NormalizeObservationError() does not unwrap cause")
+	}
+}
+
+func TestNormalizeObservationErrorFillsExistingObservationError(t *testing.T) {
+	cause := errSentinel{}
+	existing := ObservationError{Code: "rate_limit", Cause: cause}
+
+	obsErr := NormalizeObservationError("flush", "rate_limit", existing, true)
+
+	if obsErr.Operation != "flush" ||
+		obsErr.Classification != "rate_limit" ||
+		obsErr.Code != "rate_limit" ||
+		obsErr.Message != "sentinel failure" ||
+		obsErr.Cause != cause ||
+		obsErr.Retryable == nil || !*obsErr.Retryable {
+		t.Fatalf("NormalizeObservationError() = %#v", obsErr)
+	}
+	var asObs ObservationError
+	if !errors.As(obsErr, &asObs) {
+		t.Fatalf("NormalizeObservationError() does not support errors.As")
+	}
+}
+
+func TestCanceledAndDroppedObservationErrorHelpers(t *testing.T) {
+	canceled := CanceledObservationError("run", "", errSentinel{})
+	if canceled.Classification != ErrorClassificationCanceled ||
+		canceled.Retryable == nil || *canceled.Retryable ||
+		canceled.Canceled == nil || !*canceled.Canceled {
+		t.Fatalf("CanceledObservationError() = %#v", canceled)
+	}
+
+	dropped := DroppedObservationError("record", "invalid_schema", nil, false)
+	if dropped.Classification != "invalid_schema" ||
+		dropped.Retryable == nil || *dropped.Retryable ||
+		dropped.Dropped == nil || !*dropped.Dropped {
+		t.Fatalf("DroppedObservationError() = %#v", dropped)
+	}
+}
+
+func TestRecordErrorSetsFieldsAttributesAndStatusWithoutPanic(t *testing.T) {
+	var nilSpan *Span
+	nilSpan.RecordError(NormalizeObservationError("run", "runtime", errSentinel{}, false))
+
+	span := NewSpan(ObservationIdentity{ID: "span-1", TraceID: "trace-1"}, SpanKindRun, "run", time.Now())
+	span.RecordError(NormalizeObservationError("run", "runtime", errSentinel{}, false))
+	if span.Status != StatusError || span.Error == nil {
+		t.Fatalf("span after RecordError = status:%q error:%#v", span.Status, span.Error)
+	}
+	if span.Attributes["error.operation"] != "run" ||
+		span.Attributes["error.classification"] != "runtime" ||
+		span.Attributes["error.message"] != "sentinel failure" ||
+		span.Attributes["error.retryable"] != false {
+		t.Fatalf("span error attributes = %#v", span.Attributes)
+	}
+
+	literal := Span{
+		Identity:  ObservationIdentity{ID: "span-2", TraceID: "trace-1"},
+		Kind:      SpanKindRun,
+		Name:      "run",
+		StartTime: time.Now().UTC(),
+	}
+	literal.RecordError(NormalizeObservationError("run", "runtime", nil, false))
+	if literal.Status != StatusError {
+		t.Fatalf("literal span status after RecordError = %q, want error", literal.Status)
+	}
+
+	event := NewEvent(ObservationIdentity{ID: "event-1", TraceID: "trace-1"}, EventCancellation, time.Now())
+	event.SetAttr("cancellation.reason", "user")
+	event.RecordError(CanceledObservationError("run", "", nil))
+	if event.Status != StatusCanceled || event.Error == nil {
+		t.Fatalf("event after RecordError = status:%q error:%#v", event.Status, event.Error)
+	}
+	if event.Attributes["error.canceled"] != true || event.Attributes["error.retryable"] != false {
+		t.Fatalf("event error attributes = %#v", event.Attributes)
+	}
+}
+
 func TestValidateRequiresUTCTimestamps(t *testing.T) {
 	nonUTC := time.Date(2026, 6, 26, 12, 0, 0, 0, time.FixedZone("test", -4*60*60))
 	span := Span{
@@ -303,4 +398,10 @@ func unwrapAll(err error) []error {
 
 func boolPtr(value bool) *bool {
 	return &value
+}
+
+type errSentinel struct{}
+
+func (errSentinel) Error() string {
+	return "sentinel failure"
 }

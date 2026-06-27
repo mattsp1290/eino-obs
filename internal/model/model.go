@@ -66,8 +66,10 @@ type RedactionRecord struct {
 type ObservationError struct {
 	Operation      string
 	Type           string
+	Code           string
 	Message        string
 	Classification string
+	Cause          error
 	Retryable      *bool
 	Canceled       *bool
 	Dropped        *bool
