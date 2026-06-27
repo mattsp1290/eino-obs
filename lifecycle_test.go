@@ -338,3 +338,130 @@ func TestLifecycleCancellationAndErrorHelpersTolerateNilInputs(t *testing.T) {
 		t.Fatalf("default error = %#v", snapshot.Observations[1])
 	}
 }
+
+func TestLifecycleEventHelpersShareSchemaRedactionAndCorrelation(t *testing.T) {
+	observer := New(Config{
+		Service: "svc",
+		Redaction: RedactionOptions{
+			CaptureInputSummary: true,
+			MaxSummaryBytes:     6,
+		},
+	})
+	base := time.Date(2026, 6, 26, 13, 0, 0, 0, time.UTC)
+	ctx := ContextWithCorrelation(context.Background(), Correlation{
+		TraceID:             "trace-life",
+		ObservationID:       "run-life",
+		ParentObservationID: "session-life",
+		SessionID:           "session-life",
+		RunID:               "run-life",
+		AgentID:             "agent-life",
+	})
+	metadata := Metadata{
+		"phase":         "life",
+		"Authorization": "secret",
+	}
+
+	observer.Interrupt(ctx, InterruptEvent{
+		Reason:   "human_feedback",
+		Status:   "paused",
+		Time:     base,
+		Metadata: metadata,
+	})
+	observer.Resume(ctx, ResumeEvent{
+		Reason:   "user_approved",
+		Status:   "running",
+		Time:     base.Add(time.Second),
+		Metadata: metadata,
+	})
+	observer.Retry(ctx, RetryEvent{
+		Attempt:        2,
+		MaxAttempts:    3,
+		Classification: "rate_limit",
+		Time:           base.Add(2 * time.Second),
+		Metadata:       metadata,
+	})
+	observer.Compaction(ctx, CompactionEvent{
+		Reason:        "context_window",
+		BeforeTokens:  100,
+		AfterTokens:   40,
+		DroppedTokens: 60,
+		Time:          base.Add(3 * time.Second),
+		Summary: Summary{
+			Text:   "caller summary text",
+			Fields: map[string]string{"safe": "abcdefghi", "api_key": "secret"},
+		},
+		Metadata: metadata,
+	})
+	observer.Cancellation(ctx, CancellationEvent{
+		Operation:      "run",
+		Classification: "user_canceled",
+		Reason:         "human_feedback",
+		Time:           base.Add(4 * time.Second),
+		Metadata:       metadata,
+	})
+	observer.Error(ctx, ErrorEvent{
+		Operation:      "run",
+		Classification: "runtime",
+		Err:            errors.New("safe runtime"),
+		Retryable:      true,
+		Time:           base.Add(5 * time.Second),
+		Metadata:       metadata,
+	})
+
+	snapshot := observer.Snapshot()
+	if len(snapshot.Observations) != 6 {
+		t.Fatalf("observations = %d, want 6", len(snapshot.Observations))
+	}
+	wantKinds := []string{"interrupt", "resume", "retry", "compaction", "cancellation", "error"}
+	for i, want := range wantKinds {
+		got := snapshot.Observations[i]
+		if got.Kind != want || got.Name != want {
+			t.Fatalf("observation %d kind/name = %q/%q, want %q", i, got.Kind, got.Name, want)
+		}
+		if got.TraceID != "trace-life" || got.ID != "run-life" || got.ParentID != "session-life" {
+			t.Fatalf("observation %d identity = %#v", i, got)
+		}
+		if got.Attributes["service.name"] != "svc" ||
+			got.Attributes["correlation.session_id"] != "session-life" ||
+			got.Attributes["correlation.run_id"] != "run-life" ||
+			got.Attributes["correlation.agent_id"] != "agent-life" ||
+			got.Attributes["metadata.phase"] != "life" {
+			t.Fatalf("observation %d shared attributes = %#v", i, got.Attributes)
+		}
+		if _, ok := got.Attributes["metadata.Authorization"]; ok {
+			t.Fatalf("observation %d leaked sensitive metadata: %#v", i, got.Attributes)
+		}
+		assertPublicRedactionRecord(t, got.Redaction, "metadata.Authorization", "default_omitted")
+	}
+	if snapshot.Observations[2].Attributes["retry.attempt"] != int64(2) ||
+		snapshot.Observations[2].Attributes["retry.reason"] != "rate_limit" {
+		t.Fatalf("retry attributes = %#v", snapshot.Observations[2].Attributes)
+	}
+	compaction := snapshot.Observations[3]
+	if compaction.Attributes["compaction.reason"] != "context_window" ||
+		compaction.Attributes["compaction.summary"] != "caller" ||
+		compaction.Attributes["compaction.summary.fields.safe"] != "abcdef" ||
+		compaction.Attributes["compaction.dropped_tokens"] != int64(60) {
+		t.Fatalf("compaction attributes = %#v", compaction.Attributes)
+	}
+	assertPublicRedactionRecord(t, compaction.Redaction, "compaction.summary.text", "summary_truncated")
+	assertPublicRedactionRecord(t, compaction.Redaction, "compaction.summary.fields.api_key", "default_omitted")
+
+	cancellation := snapshot.Observations[4]
+	if cancellation.Status != "canceled" ||
+		cancellation.Error == nil ||
+		cancellation.Attributes["cancellation.reason"] != "human_feedback" ||
+		cancellation.Attributes["error.canceled"] != true ||
+		cancellation.Attributes["error.retryable"] != false {
+		t.Fatalf("cancellation observation = status:%q error:%#v attrs:%#v", cancellation.Status, cancellation.Error, cancellation.Attributes)
+	}
+	genericErr := snapshot.Observations[5]
+	if genericErr.Status != "error" ||
+		genericErr.Error == nil ||
+		genericErr.Error.Operation != "run" ||
+		genericErr.Error.Classification != "runtime" ||
+		!genericErr.Error.Retryable ||
+		genericErr.Attributes["error.retryable"] != true {
+		t.Fatalf("error observation = status:%q error:%#v attrs:%#v", genericErr.Status, genericErr.Error, genericErr.Attributes)
+	}
+}
