@@ -14,6 +14,9 @@ import (
 	"time"
 
 	einoobs "github.com/mattsp1290/eino-obs"
+	"github.com/mattsp1290/eino-obs/internal/model"
+	internalrecorder "github.com/mattsp1290/eino-obs/internal/recorder"
+	"github.com/mattsp1290/eino-obs/internal/redaction"
 )
 
 func TestNewResolvesDefaultsAndSiteEndpoint(t *testing.T) {
@@ -494,6 +497,144 @@ func TestExportSkipsActiveSpans(t *testing.T) {
 	}
 }
 
+func TestExportSplitsByBatchSize(t *testing.T) {
+	clearEnv(t)
+	got := collectPayloadsServer(t, http.StatusAccepted)
+	exp, err := New(Config{
+		APIKey:                  "key",
+		Endpoint:                got.server.URL,
+		MLApp:                   "app",
+		BatchSizeOverride:       Int(2),
+		MaxPayloadBytesOverride: Int(defaultPayloadBytes),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	err = exp.Export(t.Context(), []einoobs.Observation{
+		endedRunObservationWithID("span-1"),
+		endedRunObservationWithID("span-2"),
+		endedRunObservationWithID("span-3"),
+		endedRunObservationWithID("span-4"),
+		endedRunObservationWithID("span-5"),
+	})
+	if err != nil {
+		t.Fatalf("Export() error = %v", err)
+	}
+	if len(got.payloads) != 3 {
+		t.Fatalf("payloads = %d, want 3", len(got.payloads))
+	}
+	want := [][]string{{"span-1", "span-2"}, {"span-3", "span-4"}, {"span-5"}}
+	for i, batch := range want {
+		if gotSpanIDs(got.payloads[i]) != strings.Join(batch, ",") {
+			t.Fatalf("payload %d span ids = %s, want %s", i, gotSpanIDs(got.payloads[i]), strings.Join(batch, ","))
+		}
+	}
+}
+
+func TestExportSplitsByMaxPayloadBytesBeforeCompression(t *testing.T) {
+	clearEnv(t)
+	got := collectPayloadsServer(t, http.StatusAccepted)
+	span1 := endedRunObservationWithID("span-1")
+	span1.Attributes = map[string]any{"metadata.pad": strings.Repeat("a", 80)}
+	span2 := endedRunObservationWithID("span-2")
+	span2.Attributes = map[string]any{"metadata.pad": strings.Repeat("b", 80)}
+	singleSize := payloadSize(buildPayload(Config{MLApp: "app"}, []model.Span{modelSpanForTest(t, span1)}))
+	exp, err := New(Config{
+		APIKey:                  "key",
+		Endpoint:                got.server.URL,
+		MLApp:                   "app",
+		BatchSizeOverride:       Int(10),
+		MaxPayloadBytesOverride: Int(singleSize + 20),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	err = exp.Export(t.Context(), []einoobs.Observation{span1, span2})
+	if err != nil {
+		t.Fatalf("Export() error = %v", err)
+	}
+	if len(got.payloads) != 2 {
+		t.Fatalf("payloads = %d, want 2", len(got.payloads))
+	}
+	if gotSpanIDs(got.payloads[0]) != "span-1" || gotSpanIDs(got.payloads[1]) != "span-2" {
+		t.Fatalf("payload order = %q then %q", gotSpanIDs(got.payloads[0]), gotSpanIDs(got.payloads[1]))
+	}
+	for i, payload := range got.payloads {
+		if size := payloadSize(payload); size > singleSize+20 {
+			t.Fatalf("payload %d size = %d, want <= %d", i, size, singleSize+20)
+		}
+	}
+}
+
+func TestExportDropsSingleSpanExceedingPayloadLimit(t *testing.T) {
+	clearEnv(t)
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requests++
+	}))
+	defer server.Close()
+	exp, err := New(Config{
+		APIKey:                  "key",
+		Endpoint:                server.URL,
+		MLApp:                   "app",
+		MaxPayloadBytesOverride: Int(64),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	obs := endedRunObservationWithID("span-large")
+	obs.Attributes = map[string]any{"metadata.pad": strings.Repeat("x", 256)}
+
+	err = exp.Export(t.Context(), []einoobs.Observation{obs})
+	var obsErr einoobs.ObservationError
+	if !errors.As(err, &obsErr) {
+		t.Fatalf("Export() error = %T, want ObservationError", err)
+	}
+	if requests != 0 {
+		t.Fatalf("requests = %d, want 0", requests)
+	}
+	if obsErr.Operation != "batch" || obsErr.Classification != "payload_too_large" || obsErr.Retryable || !obsErr.Dropped {
+		t.Fatalf("ObservationError = %#v", obsErr)
+	}
+}
+
+func TestExportDropsOversizeSpanAndSendsValidSpans(t *testing.T) {
+	clearEnv(t)
+	got := collectPayloadsServer(t, http.StatusAccepted)
+	validBefore := endedRunObservationWithID("span-before")
+	oversize := endedRunObservationWithID("span-large")
+	oversize.Attributes = map[string]any{"metadata.pad": strings.Repeat("x", 256)}
+	validAfter := endedRunObservationWithID("span-after")
+	validSize := payloadSize(buildPayload(Config{MLApp: "app"}, []model.Span{modelSpanForTest(t, validBefore)}))
+	exp, err := New(Config{
+		APIKey:                  "key",
+		Endpoint:                got.server.URL,
+		MLApp:                   "app",
+		BatchSizeOverride:       Int(10),
+		MaxPayloadBytesOverride: Int(validSize + 20),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	err = exp.Export(t.Context(), []einoobs.Observation{validBefore, oversize, validAfter})
+	var obsErr einoobs.ObservationError
+	if !errors.As(err, &obsErr) {
+		t.Fatalf("Export() error = %T, want ObservationError", err)
+	}
+	if obsErr.Operation != "batch" || obsErr.Classification != "payload_too_large" || obsErr.Retryable || !obsErr.Dropped {
+		t.Fatalf("ObservationError = %#v", obsErr)
+	}
+	if len(got.payloads) != 2 {
+		t.Fatalf("payloads = %d, want 2", len(got.payloads))
+	}
+	if gotSpanIDs(got.payloads[0]) != "span-before" || gotSpanIDs(got.payloads[1]) != "span-after" {
+		t.Fatalf("payload span ids = %q then %q", gotSpanIDs(got.payloads[0]), gotSpanIDs(got.payloads[1]))
+	}
+}
+
 func TestExportClassifiesHTTPStatus(t *testing.T) {
 	clearEnv(t)
 	tests := []struct {
@@ -750,8 +891,12 @@ func TestDatadogExporterDoesNotAffectDefaultNoNetworkMode(t *testing.T) {
 }
 
 func endedRunObservation() einoobs.Observation {
+	return endedRunObservationWithID("span-1")
+}
+
+func endedRunObservationWithID(id string) einoobs.Observation {
 	return einoobs.Observation{
-		ID:            "span-1",
+		ID:            id,
 		TraceID:       "trace-1",
 		Kind:          "run",
 		Name:          "run",
@@ -760,6 +905,52 @@ func endedRunObservation() einoobs.Observation {
 		Duration:      time.Millisecond,
 		DurationKnown: true,
 	}
+}
+
+type payloadCollector struct {
+	server   *httptest.Server
+	payloads []payload
+}
+
+func collectPayloadsServer(t *testing.T, status int) *payloadCollector {
+	t.Helper()
+	collector := &payloadCollector{}
+	collector.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var got payload
+		body := io.Reader(r.Body)
+		if r.Header.Get("Content-Encoding") == "gzip" {
+			gzipReader, err := gzip.NewReader(r.Body)
+			if err != nil {
+				t.Fatalf("gzip.NewReader() error = %v", err)
+			}
+			defer gzipReader.Close()
+			body = gzipReader
+		}
+		if err := json.NewDecoder(body).Decode(&got); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		collector.payloads = append(collector.payloads, got)
+		w.WriteHeader(status)
+	}))
+	t.Cleanup(collector.server.Close)
+	return collector
+}
+
+func gotSpanIDs(payload payload) string {
+	ids := make([]string, 0, len(payload.Spans))
+	for _, span := range payload.Spans {
+		ids = append(ids, span.SpanID)
+	}
+	return strings.Join(ids, ",")
+}
+
+func modelSpanForTest(t *testing.T, observation einoobs.Observation) model.Span {
+	t.Helper()
+	span, err := redaction.ApplySpan(internalrecorder.PublicObservationToSpan(observation), redaction.Options{})
+	if err != nil {
+		t.Fatalf("ApplySpan() error = %v", err)
+	}
+	return span
 }
 
 func clearEnv(t *testing.T) {

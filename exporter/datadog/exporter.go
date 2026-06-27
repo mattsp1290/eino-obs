@@ -219,19 +219,28 @@ func (e *Exporter) Export(ctx context.Context, batch []einoobs.Observation) erro
 	if e == nil {
 		return nil
 	}
-	spans := make([]model.Span, 0, len(batch))
+	spans := make([]spanPayload, 0, len(batch))
 	for _, observation := range batch {
 		span, err := redaction.ApplySpan(internalrecorder.PublicObservationToSpan(observation), redaction.Options{})
 		if err != nil {
 			return observationError("export", "redaction", err, false, true)
 		}
-		spans = append(spans, span)
+		item, ok := mapSpan(e.config, span)
+		if !ok {
+			continue
+		}
+		spans = append(spans, item)
 	}
-	payload := buildPayload(e.config, spans)
-	if len(payload.Spans) == 0 {
+	if len(spans) == 0 {
 		return nil
 	}
-	return e.postPayload(ctx, payload, "export")
+	payloads, batchErr := e.splitPayloads(spans)
+	for _, payload := range payloads {
+		if err := e.postPayload(ctx, payload, "export"); err != nil {
+			return err
+		}
+	}
+	return batchErr
 }
 
 func (e *Exporter) validateCredentials(ctx context.Context) error {
@@ -273,6 +282,46 @@ func (e *Exporter) postPayload(ctx context.Context, payload payload, operation s
 		}
 	}
 	return lastErr
+}
+
+func (e *Exporter) splitPayloads(spans []spanPayload) ([]payload, error) {
+	batchSize := e.config.BatchSize
+	if batchSize <= 0 {
+		batchSize = defaultBatchSize
+	}
+	out := make([]payload, 0, (len(spans)+batchSize-1)/batchSize)
+	current := payload{Spans: make([]spanPayload, 0, batchSize)}
+	var batchErrs []error
+	for _, span := range spans {
+		single := payload{Spans: []spanPayload{span}}
+		if payloadSize(single) > e.config.MaxPayloadBytes {
+			batchErrs = append(batchErrs, observationError("batch", "payload_too_large", fmt.Errorf("Datadog span payload exceeds max payload bytes"), false, true))
+			continue
+		}
+		if len(current.Spans) == 0 {
+			current.Spans = append(current.Spans, span)
+			continue
+		}
+		candidate := payload{Spans: append(append([]spanPayload{}, current.Spans...), span)}
+		if len(current.Spans) >= batchSize || payloadSize(candidate) > e.config.MaxPayloadBytes {
+			out = append(out, current)
+			current = payload{Spans: []spanPayload{span}}
+			continue
+		}
+		current.Spans = append(current.Spans, span)
+	}
+	if len(current.Spans) > 0 {
+		out = append(out, current)
+	}
+	return out, errors.Join(batchErrs...)
+}
+
+func payloadSize(payload payload) int {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return defaultPayloadBytes + 1
+	}
+	return len(body)
 }
 
 func (e *Exporter) sendPayload(ctx context.Context, body []byte, operation string) error {
