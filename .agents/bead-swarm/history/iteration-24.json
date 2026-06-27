@@ -1,0 +1,44 @@
+{
+  "schema_version": "bead-swarm-history-v1",
+  "iteration": 24,
+  "branch": "bead-swarm/iteration-24-datadog-exporter-path",
+  "slug": "datadog-exporter-path",
+  "main_branch": "main",
+  "main_branch_source": "default",
+  "execution_mode": "parent-degraded",
+  "degraded_reason": "Single ready bead implemented directly by parent; independent Codex reviewer subagents used for review gate.",
+  "selected_beads": ["eino-obs-6on.28"],
+  "beads_done": ["eino-obs-6on.28"],
+  "beads_blocked": [],
+  "beads_partial": [],
+  "merge_target": "main",
+  "validation": [
+    "go test ./...: pass",
+    "go test -race ./...: pass",
+    "git diff --check main...HEAD: pass"
+  ],
+  "review_mode": "reviewer-subagents",
+  "review_assurance": "normal",
+  "findings_fixed_re_reviewed": true,
+  "review_artifacts_local_only": true,
+  "review_blocker_summary": [
+    "Initial HTTP export review requested gzip-by-default request bodies, content-encoding tests, and more precise transport error classification.",
+    "Initial failure/no-network review requested applying redaction before real Datadog payload mapping and adding transport error classification coverage.",
+    "Updated exporter to apply redaction before mapping, gzip JSON payloads by default, classify timeout/temporary/permanent transport failures, and test request metadata plus sensitive-field non-leakage.",
+    "Focused re-reviews approved both blocker sets with no remaining blocking findings."
+  ],
+  "reviews": [
+    {
+      "reviewer": "http-export-path",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-24-datadog-exporter-path-2026-06-26/http-export-path/06-re-review.md"
+    },
+    {
+      "reviewer": "failure-no-network",
+      "verdict": "APPROVE",
+      "artifact": "reviews/bead-swarm-iteration-24-datadog-exporter-path-2026-06-26/failure-no-network/06-re-review.md"
+    }
+  ],
+  "completed_at": "2026-06-27T00:42:58Z",
+  "status": "complete"
+}
